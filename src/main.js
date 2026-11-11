@@ -32,7 +32,12 @@ function createWindow() {
     minWidth: 920,
     minHeight: 640,
     title: "Lead Finder",
-    backgroundColor: "#f3efe6",
+    transparent: true,
+    backgroundColor: "#00000000",
+    vibrancy: "under-window",
+    visualEffectState: "active",
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 18 },
     icon: path.join(__dirname, "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

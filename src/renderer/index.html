@@ -7,22 +7,8 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="toolbar top">
-    <div class="top-actions">
-      <button type="button" id="start" class="start" disabled>Начать поиск</button>
-      <button type="button" id="reset-memory" class="ghost">Сбросить память</button>
-      <button type="button" id="show-browser" class="ghost">Показать браузер</button>
-      <div class="exports">
-        <button type="button" id="export-csv" class="ghost">CSV</button>
-        <button type="button" id="export-xlsx" class="ghost">Excel</button>
-        <button type="button" id="clear-leads" class="ghost">Очистить лидов</button>
-      </div>
-    </div>
-  </header>
-
-  <section class="panel controls">
-    <div class="panel-title">Настройки</div>
-    <div class="panel-body">
+  <header class="stage">
+    <section class="glass pill controls">
       <label class="field">
         <span>Сайт</span>
         <select id="site"></select>
@@ -48,15 +34,32 @@
         <span>Прокси</span>
         <input id="proxy-input" type="text" placeholder="socks5://host:port" autocomplete="off" spellcheck="false" />
       </label>
-      <button type="button" id="proxy-check" class="ghost">Проверить</button>
-      <p id="proxy-note" class="note"></p>
+    </section>
+
+    <button type="button" id="start" class="glass play" disabled>Начать поиск</button>
+
+    <div class="actions">
+      <button type="button" id="proxy-check" class="glass mini">Проверить</button>
+      <button type="button" id="reset-memory" class="glass mini">Сбросить память</button>
+      <button type="button" id="show-browser" class="glass mini">Показать браузер</button>
+      <button type="button" id="export-csv" class="glass mini">CSV</button>
+      <button type="button" id="export-xlsx" class="glass mini">Excel</button>
+      <button type="button" id="clear-leads" class="glass mini">Очистить лидов</button>
+    </div>
+  </header>
+
+  <section class="meta" id="status" aria-live="polite">
+    <p id="status-line">Выберите страну и нажмите «Начать поиск».</p>
+    <p id="proxy-note" class="note"></p>
+    <div class="chips">
+      <span class="glass chip">Запросы <strong id="m-requests">0</strong></span>
+      <span class="glass chip">Профили <strong id="m-profiles">0</strong></span>
+      <span class="glass chip">Лиды <strong id="m-leads">0</strong></span>
+      <span class="glass chip">Источник <strong id="m-source">—</strong></span>
     </div>
   </section>
 
-  <section class="panel terminal">
-    <div class="tabs" role="tablist">
-      <span class="tab" role="tab" aria-selected="true">Лиды</span>
-    </div>
+  <main class="glass card">
     <div class="table-wrap">
       <table>
         <thead>
@@ -78,15 +81,7 @@
       </table>
       <p id="empty" class="empty">Пока пусто. Подходящие профили появятся здесь по ходу поиска.</p>
     </div>
-  </section>
-
-  <footer class="metrics" id="status" aria-live="polite">
-    <p id="status-line">Выберите страну и нажмите «Начать поиск».</p>
-    <span>Запросы <strong id="m-requests">0</strong></span>
-    <span>Профили <strong id="m-profiles">0</strong></span>
-    <span>Лиды <strong id="m-leads">0</strong></span>
-    <span>Источник <strong id="m-source">—</strong></span>
-  </footer>
+  </main>
 
   <script src="renderer.js"></script>
 </body>
