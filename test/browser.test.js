@@ -1,28 +1,47 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  parseInstallLine,
-  isMissingChrome,
   shouldBlockResource,
   reloadUntilClear,
-  browserLaunchArgs,
   shouldReuseBrowser,
+  hiddenWindowOptions,
+  chromeUserAgent,
+  sessionProxySettings,
   CHALLENGE_RELOAD_MESSAGE,
-  CHALLENGE_RELOAD_MS
+  CHALLENGE_RELOAD_MS,
+  ACCEPT_LANGUAGE
 } = require("../src/browser");
 
-test("chromium download progress is a status update", () => {
-  const started = parseInstallLine("Downloading Chromium 131.0.6778.33 (playwright build v1148) from https://example.test/chrome");
-  assert.equal(started.phase, "download");
-  assert.equal(started.progress, 0);
+test("the search window stays inside the app and hidden", () => {
+  const options = hiddenWindowOptions();
+  assert.equal(options.show, false);
+  assert.equal(options.skipTaskbar, true);
+  assert.equal(options.paintWhenInitiallyHidden, true);
+  assert.equal(options.webPreferences.backgroundThrottling, false);
+  assert.equal(options.webPreferences.offscreen, false);
+  assert.equal(options.webPreferences.partition, "persist:leadfinder");
+  assert.equal(options.webPreferences.nodeIntegration, false);
+  assert.equal(options.webPreferences.contextIsolation, true);
+  assert.equal(options.webPreferences.sandbox, true);
+});
 
-  const bar = parseInstallLine("|■■■■■■■■                                                                                |  10% of 170.2 MiB");
-  assert.equal(bar.progress, 10);
-  assert.match(bar.message, /10%/);
+test("the user agent looks like Chrome, without Electron or the app name", () => {
+  const raw = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.191 Electron/33.4.11 Safari/537.36 Lead Finder/1.0.0";
+  assert.equal(
+    chromeUserAgent(raw, "Lead Finder"),
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.191 Safari/537.36"
+  );
+  assert.equal(ACCEPT_LANGUAGE, "en-US,en;q=0.9");
+});
 
-  const done = parseInstallLine("Chromium 131.0.6778.33 (playwright build v1148) downloaded to /tmp/browsers/chromium");
-  assert.equal(done.progress, 100);
-  assert.equal(parseInstallLine(""), null);
+test("proxy rules point at the forwarder for authenticated socks and direct otherwise", () => {
+  assert.deepEqual(sessionProxySettings(null), { mode: "direct" });
+  assert.deepEqual(sessionProxySettings({ proxy: { server: "socks5://127.0.0.1:1080" } }), {
+    proxyRules: "socks5://127.0.0.1:1080"
+  });
+  assert.deepEqual(sessionProxySettings({ proxy: { server: "http://127.0.0.1:54321", username: "u", password: "p" } }), {
+    proxyRules: "http://127.0.0.1:54321"
+  });
 });
 
 test("images, media and fonts are blocked, scripts and styles are not", () => {
@@ -34,14 +53,6 @@ test("images, media and fonts are blocked, scripts and styles are not", () => {
   assert.equal(shouldBlockResource("xhr"), false);
   assert.equal(shouldBlockResource("fetch"), false);
   assert.equal(shouldBlockResource("document"), false);
-});
-
-test("only a missing system Chrome falls back to Chromium", () => {
-  const missing = new Error("Chromium distribution 'chrome' is not found at /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\nRun \"npx patchright install chrome\"");
-  assert.equal(isMissingChrome(missing), true);
-  assert.equal(isMissingChrome(new Error("Chromium distribution 'chrome' is not supported on linux")), true);
-  assert.equal(isMissingChrome(new Error("net::ERR_CONNECTION_RESET")), false);
-  assert.equal(isMissingChrome(new Error("browserType.launchPersistentContext: Target closed")), false);
 });
 
 test("cloudflare reloads immediately, then every 3 seconds, until it clears", async () => {
@@ -88,14 +99,3 @@ test("the hidden browser is reused until the proxy changes or it closes", () => 
   assert.equal(shouldReuseBrowser(false, "socks5://127.0.0.1:1080", "socks5://127.0.0.1:1080"), false);
 });
 
-test("the browser launches headed, off-screen, and is not minimized", () => {
-  const args = browserLaunchArgs({ sandbox: true });
-  assert.equal(args.includes("--headless=new"), false);
-  assert.equal(args.includes("--start-minimized"), false);
-  assert.ok(args.includes("--window-position=-32000,-32000"));
-  assert.ok(args.includes("--window-size=480,360"));
-  assert.ok(args.includes("--disable-backgrounding-occluded-windows"));
-  assert.ok(args.includes("--disable-renderer-backgrounding"));
-  assert.ok(args.includes("--disable-background-timer-throttling"));
-  assert.ok(browserLaunchArgs({ sandbox: false }).includes("--no-sandbox"));
-});

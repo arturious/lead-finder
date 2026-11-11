@@ -15,7 +15,6 @@
     "electron@33.4.11": true
   },
   "dependencies": {
-    "patchright": "1.64.3",
     "socks": "2.8.10"
   },
   "devDependencies": {
@@ -26,10 +25,6 @@
     "appId": "com.leadfinder.app",
     "productName": "Lead Finder",
     "asar": true,
-    "asarUnpack": [
-      "node_modules/patchright/**",
-      "node_modules/patchright-core/**"
-    ],
     "directories": {
       "output": "dist"
     },
