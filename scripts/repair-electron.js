@@ -7,6 +7,15 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const MIN_BINARY = 1024 * 1024;
+// On macOS the main executable is a small stub. The real binary lives in
+// Contents/Frameworks/Electron Framework.framework.
+const MIN_DARWIN_STUB = 10 * 1024;
+const DARWIN_FRAMEWORK = path.join(
+  "Electron.app",
+  "Contents",
+  "Frameworks",
+  "Electron Framework.framework"
+);
 
 function platformPath(platform) {
   if (platform === "darwin" || platform === "mas") return "Electron.app/Contents/MacOS/Electron";
@@ -59,7 +68,12 @@ function installLooksGood(electronDir, version, rel) {
     if (got !== String(version).replace(/^v/, "")) return false;
     if (fs.readFileSync(path.join(electronDir, "path.txt"), "utf8") !== rel) return false;
     const stat = fs.statSync(path.join(electronDir, "dist", rel));
-    return stat.isFile() && stat.size >= MIN_BINARY;
+    if (!stat.isFile()) return false;
+    if (rel.startsWith("Electron.app/")) {
+      const framework = path.join(electronDir, "dist", DARWIN_FRAMEWORK);
+      return stat.size >= MIN_DARWIN_STUB && fs.existsSync(framework);
+    }
+    return stat.size >= MIN_BINARY;
   } catch {
     return false;
   }
@@ -131,5 +145,6 @@ module.exports = {
   zipName,
   extractTool,
   findZip,
-  MIN_BINARY
+  MIN_BINARY,
+  MIN_DARWIN_STUB
 };
