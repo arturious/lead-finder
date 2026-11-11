@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>Lead Finder</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Lead Finder</h1>
+      <p class="sub">Публичные профили. Без входа в аккаунт и без сообщений.</p>
+    </div>
+    <div class="exports">
+      <button type="button" id="export-csv" class="ghost">CSV</button>
+      <button type="button" id="export-xlsx" class="ghost">Excel</button>
+    </div>
+  </header>
+
+  <section class="controls">
+    <label class="field">
+      <span>Сайт</span>
+      <select id="site"></select>
+    </label>
+    <div class="field country-field">
+      <span>Страна</span>
+      <div class="combo" id="country-combo">
+        <input id="country-input" type="text" placeholder="Найти страну" autocomplete="off" spellcheck="false" />
+        <ul id="country-list" class="country-list" hidden></ul>
+      </div>
+    </div>
+    <button type="button" id="start" class="start" disabled>Начать поиск</button>
+  </section>
+
+  <section id="license" class="license" hidden>
+    <p id="license-text"></p>
+    <form id="license-form">
+      <input id="license-key" type="password" placeholder="cb_…" autocomplete="off" spellcheck="false" />
+      <button type="submit">Сохранить ключ</button>
+    </form>
+    <p id="license-note" class="note"></p>
+  </section>
+
+  <section class="status" id="status" aria-live="polite">
+    <div class="metrics">
+      <span>Запросы <strong id="m-requests">0</strong></span>
+      <span>Профили <strong id="m-profiles">0</strong></span>
+      <span>Лиды <strong id="m-leads">0</strong></span>
+      <span>Источник <strong id="m-source">—</strong></span>
+    </div>
+    <p id="status-line">Выберите страну и нажмите «Начать поиск».</p>
+  </section>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Ник</th>
+          <th>Страна</th>
+          <th>Источник</th>
+          <th>Активность</th>
+          <th>Онлайн</th>
+          <th>Регистрация</th>
+          <th>Стаж</th>
+          <th>Прирост</th>
+          <th>Просадка</th>
+          <th>Сделки</th>
+          <th>Найден</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p id="empty" class="empty">Пока пусто. Подходящие профили появятся здесь по ходу поиска.</p>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
