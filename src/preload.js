@@ -6,7 +6,6 @@ contextBridge.exposeInMainWorld("leadfinder", {
   start: (payload) => ipcRenderer.invoke("start", payload),
   stop: () => ipcRenderer.invoke("stop"),
   exportFile: (kind) => ipcRenderer.invoke("export", kind),
-  saveLicense: (key) => ipcRenderer.invoke("save-license", key),
   openUrl: (url) => ipcRenderer.invoke("open-url", url),
   onStatus: (callback) => {
     const listener = (_event, status) => callback(status);

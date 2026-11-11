@@ -1,56 +1,198 @@
+const fs = require("fs");
+const path = require("path");
+const { spawn } = require("child_process");
 const { isChallengeHtml, isHardBlockHtml } = require("./parse");
 
-// launchPersistentContext keeps Cloudflare clearance in userDataDir.
-// Headless until a "Just a moment" page shows up; then the window is shown
-// so a person can pass the check, and the search continues on its own.
+// Headed Chrome, minimized until a Cloudflare check. The same window is
+// shown and hidden so the Turnstile page is not reloaded. viewport stays
+// null and userAgent is unset: both overrides are a fingerprint.
 
-function hookConsole(onLine) {
-  const original = console.error;
-  console.error = (...args) => {
-    const msg = args.map((part) => (typeof part === "string" ? part : (part && part.message) || "")).join(" ");
-    if (msg.includes("[cloakbrowser]") || /download progress/i.test(msg)) onLine(msg);
-    original.apply(console, args);
+function parseInstallLine(line) {
+  const text = String(line || "").replace(/\u001b\[[0-9;]*m/g, "").trim();
+  if (!text) return null;
+  const percent = text.match(/(\d{1,3})\s*%/);
+  if (percent) {
+    const value = Math.min(100, Number(percent[1]));
+    return { phase: "download", progress: value, message: `Скачиваю Chromium: ${value}%` };
+  }
+  if (/^Downloading\b/i.test(text)) {
+    return { phase: "download", progress: 0, message: "Скачиваю Chromium…" };
+  }
+  if (/downloaded to /i.test(text)) {
+    return { phase: "download", progress: 100, message: "Chromium скачан" };
+  }
+  return null;
+}
+
+function isMissingChrome(error) {
+  const msg = String((error && error.message) || error || "");
+  return /Chromium distribution 'chrome' is not found/.test(msg)
+    || /Chromium distribution 'chrome' is not supported/.test(msg);
+}
+
+function unpacked(file) {
+  const marker = `${path.sep}app.asar${path.sep}`;
+  if (!file.includes(marker)) return file;
+  const candidate = file.replace(marker, `${path.sep}app.asar.unpacked${path.sep}`);
+  return fs.existsSync(candidate) ? candidate : file;
+}
+
+let forkPatched = false;
+function patchDriverFork() {
+  if (forkPatched) return;
+  forkPatched = true;
+  const childProcess = require("child_process");
+  const original = childProcess.fork;
+  childProcess.fork = function (modulePath, args, options) {
+    if (typeof modulePath === "string" && modulePath.includes(`${path.sep}patchright`)) {
+      modulePath = unpacked(modulePath);
+      const baseEnv = (options && options.env) || process.env;
+      options = { ...options, env: { ...baseEnv, ELECTRON_RUN_AS_NODE: "1" } };
+    }
+    return original.call(this, modulePath, args, options);
   };
-  return () => {
-    console.error = original;
-  };
+}
+
+function browsersDir(userDataDir) {
+  return path.join(path.dirname(userDataDir), "browsers");
+}
+
+function chromiumProfileDir(userDataDir) {
+  return path.join(path.dirname(userDataDir), "chromium-profile");
+}
+
+function patchrightCli() {
+  return unpacked(path.join(path.dirname(require.resolve("patchright/package.json")), "cli.js"));
+}
+
+// Patchright leaves the sandbox off unless asked. Chrome then shows a bar
+// about --no-sandbox. Keep the sandbox on. Only a Linux root process, which
+// cannot start the sandbox, falls back. The Mac app does not.
+function wantsSandbox() {
+  if (process.platform !== "linux") return true;
+  return typeof process.getuid !== "function" || process.getuid() !== 0;
+}
+
+function installChromium(browsersPath, onProgress, isCancelled) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [patchrightCli(), "install", "chromium"], {
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
+        PLAYWRIGHT_BROWSERS_PATH: browsersPath
+      }
+    });
+    const take = (buf) => {
+      for (const line of buf.toString().split(/[\r\n]+/)) {
+        const parsed = parseInstallLine(line);
+        if (parsed && onProgress) onProgress(parsed);
+      }
+    };
+    child.stdout.on("data", take);
+    child.stderr.on("data", take);
+    child.on("error", reject);
+    child.on("exit", (code, signal) => {
+      if (signal || (isCancelled && isCancelled())) {
+        resolve(false);
+        return;
+      }
+      if (code === 0) resolve(true);
+      else reject(new Error(`Не удалось скачать Chromium (код ${code == null ? "?" : code})`));
+    });
+    if (isCancelled) {
+      const watch = setInterval(() => {
+        if (!isCancelled()) return;
+        clearInterval(watch);
+        child.kill("SIGTERM");
+      }, 200);
+      child.on("exit", () => clearInterval(watch));
+    }
+  });
 }
 
 function createBrowser({ userDataDir, entryUrl, onProgress }) {
   let context = null;
   let page = null;
-  let headless = true;
-  let challengeStrikes = 0;
   let opening = null;
   let generation = 0;
 
-  function note(line) {
-    if (onProgress) onProgress(line);
+  function report(update) {
+    if (onProgress) onProgress(update);
   }
 
-  async function open(nextHeadless) {
+  async function placeWindow(target, visible) {
+    if (!context || !target) return;
+    try {
+      const session = await context.newCDPSession(target);
+      const { windowId } = await session.send("Browser.getWindowForTarget");
+      if (visible) {
+        await session.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "normal" } });
+        await session.send("Browser.setWindowBounds", {
+          windowId,
+          bounds: { left: 80, top: 60, width: 1100, height: 800 }
+        });
+        await target.bringToFront().catch(() => {});
+      } else {
+        await session.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "minimized" } });
+      }
+      await session.detach().catch(() => {});
+    } catch {
+      if (visible && target) await target.bringToFront().catch(() => {});
+    }
+  }
+
+  async function launch(kind) {
+    patchDriverFork();
+    const browsersPath = browsersDir(userDataDir);
+    fs.mkdirSync(browsersPath, { recursive: true });
+    if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+      process.env.PLAYWRIGHT_BROWSERS_PATH = browsersPath;
+    }
+    const { chromium } = require("patchright");
+    const dir = kind === "chrome" ? userDataDir : chromiumProfileDir(userDataDir);
+    fs.mkdirSync(dir, { recursive: true });
+    const sandbox = wantsSandbox();
+    const options = {
+      headless: false,
+      viewport: null,
+      chromiumSandbox: sandbox,
+      args: sandbox ? ["--start-minimized"] : ["--start-minimized", "--no-sandbox", "--disable-dev-shm-usage"]
+    };
+    if (kind === "chrome") options.channel = "chrome";
+    return chromium.launchPersistentContext(dir, options);
+  }
+
+  async function open() {
     if (opening) return opening;
     const token = ++generation;
     opening = (async () => {
-      const restore = hookConsole(note);
+      let launched = null;
       try {
-        const { launchPersistentContext } = await import("cloakbrowser");
-        const launched = await launchPersistentContext({
-          userDataDir,
-          headless: !!nextHeadless,
-          args: nextHeadless ? [] : ["--window-size=1100,800"]
-        });
+        report({ phase: "starting", message: "Запуск Chrome…", progress: null });
+        try {
+          launched = await launch("chrome");
+        } catch (error) {
+          if (!isMissingChrome(error)) throw error;
+          report({ phase: "download", message: "Google Chrome не найден. Скачиваю Chromium…", progress: 0 });
+          const installed = await installChromium(
+            process.env.PLAYWRIGHT_BROWSERS_PATH || browsersDir(userDataDir),
+            report,
+            () => token !== generation
+          );
+          if (!installed || token !== generation) return;
+          report({ phase: "starting", message: "Запуск Chromium…", progress: null });
+          launched = await launch("chromium");
+        }
         if (token !== generation) {
-          await launched.close().catch(() => {});
+          if (launched) await launched.close().catch(() => {});
           return;
         }
         context = launched;
         page = context.pages()[0] || await context.newPage();
         context.setDefaultTimeout(70000);
         page.setDefaultTimeout(70000);
-        headless = !!nextHeadless;
+        await placeWindow(page, false);
       } finally {
-        restore();
         opening = null;
       }
     })();
@@ -75,7 +217,7 @@ function createBrowser({ userDataDir, entryUrl, onProgress }) {
 
   async function ensurePage() {
     if (page && context) return page;
-    await open(headless);
+    await open();
     return page;
   }
 
@@ -97,6 +239,7 @@ function createBrowser({ userDataDir, entryUrl, onProgress }) {
 
   async function fetch(url, { xhr = false } = {}) {
     const target = await ensurePage();
+    if (!target) return { timeout: true };
     let current = "";
     try { current = target.url(); } catch { current = ""; }
     const title = await target.title().catch(() => "");
@@ -156,35 +299,22 @@ function createBrowser({ userDataDir, entryUrl, onProgress }) {
     return false;
   }
 
-  async function relaunch(nextHeadless, shouldStop) {
-    await close();
-    if (shouldStop && shouldStop()) return false;
-    await open(nextHeadless);
-    if (!page) return false;
-    const ok = await gotoEntry(page);
-    if (!ok) return false;
-    return true;
-  }
-
   async function showForChallenge(shouldStop) {
-    challengeStrikes += 1;
-    const opened = await relaunch(false, shouldStop);
-    if (!opened) return false;
-    const cleared = await waitUntilClear(shouldStop);
-    if (!cleared || (shouldStop && shouldStop())) return false;
-    if (challengeStrikes >= 2) return true;
-    const back = await relaunch(true, shouldStop);
-    if (!back) return false;
-    if (await pageLooksChallenged(page)) {
-      challengeStrikes = 2;
-      const shown = await relaunch(false, shouldStop);
-      if (!shown) return false;
-      return waitUntilClear(shouldStop);
+    const target = await ensurePage();
+    if (!target) return false;
+    await placeWindow(target, true);
+    if (!(await pageLooksChallenged(target))) {
+      const ok = await gotoEntry(target);
+      if (!ok) return false;
     }
-    return true;
+    const cleared = await waitUntilClear(shouldStop);
+    if (cleared && !(shouldStop && shouldStop())) await placeWindow(target, false);
+    return cleared;
   }
 
   return { open, close, fetch, showForChallenge };
 }
 
-module.exports = { createBrowser };
+patchDriverFork();
+
+module.exports = { createBrowser, parseInstallLine, isMissingChrome };

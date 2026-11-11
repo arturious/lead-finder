@@ -28,7 +28,7 @@ body {
   font: 14px/1.4 "Segoe UI", "Helvetica Neue", sans-serif;
 }
 
-.top, .status, .license {
+.top, .status {
   padding: 16px 22px 0;
 }
 
@@ -81,7 +81,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
 .field span { color: var(--muted); font-size: 12px; }
 
-select, #country-input, #license-key {
+select, #country-input {
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -133,17 +133,6 @@ select, #country-input, #license-key {
 
 .country-list button:hover,
 .country-list button.active { background: #efe7d8; }
-
-.license {
-  margin: 8px 22px 0;
-  padding: 12px 14px;
-  background: #fff8e8;
-  border: 1px solid #ead7a4;
-  border-radius: 10px;
-}
-
-.license p { margin: 0 0 8px; }
-#license-form { display: flex; gap: 8px; }
 
 .status { padding-bottom: 8px; }
 

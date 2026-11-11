@@ -1,32 +1,6 @@
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
 const { createBrowser } = require("./browser");
 const { getSource } = require("./sources");
 const { politeDelayMs, backoffMinutes } = require("./pacing");
-
-function licenseFile() {
-  return path.join(os.homedir(), ".cloakbrowser", "license.key");
-}
-
-function hasLicenseKey() {
-  if ((process.env.CLOAKBROWSER_LICENSE_KEY || "").trim()) return true;
-  try {
-    return fs.readFileSync(licenseFile(), "utf8").trim().length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function saveLicenseKey(key) {
-  const trimmed = String(key || "").trim();
-  if (!/^cb_[A-Za-z0-9._-]{8,}$/.test(trimmed)) {
-    throw new Error("Ключ CloakBrowser начинается с cb_");
-  }
-  const file = licenseFile();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${trimmed}\n`, { mode: 0o600 });
-}
 
 function createEngine({ store, profileDir, emit }) {
   let stopRequested = false;
@@ -43,7 +17,6 @@ function createEngine({ store, profileDir, emit }) {
     source: "",
     progress: null,
     blocked: false,
-    license: false,
     country: store.data.lastCountry || "",
     siteId: store.data.lastSite || "myfxbook"
   };
@@ -81,26 +54,11 @@ function createEngine({ store, profileDir, emit }) {
     }
   }
 
-  function noteDownload(line) {
-    const progress = line.match(/Download progress:\s*(\d+)%\s*(?:\(([^)]+)\))?/i);
-    if (progress) {
-      stats.phase = "download";
-      stats.progress = Number(progress[1]);
-      stats.message = progress[2]
-        ? `Загрузка CloakBrowser: ${progress[1]}% (${progress[2]})`
-        : `Загрузка CloakBrowser: ${progress[1]}%`;
-    } else if (/Downloading/i.test(line)) {
-      stats.phase = "download";
-      stats.message = "Скачиваю Chromium для CloakBrowser…";
-    } else if (/Extracting/i.test(line)) {
-      stats.phase = "download";
-      stats.message = "Распаковываю CloakBrowser…";
-    } else if (/Binary ready/i.test(line)) {
-      stats.progress = 100;
-      stats.message = "CloakBrowser готов";
-    } else {
-      return;
-    }
+  function noteProgress(update) {
+    if (!update || typeof update !== "object") return;
+    if (update.phase) stats.phase = update.phase;
+    if (update.message) stats.message = update.message;
+    if (Object.prototype.hasOwnProperty.call(update, "progress")) stats.progress = update.progress;
     emitStatus();
   }
 
@@ -139,7 +97,7 @@ function createEngine({ store, profileDir, emit }) {
       if (result.challenge) {
         stats.phase = "challenge";
         stats.blocked = true;
-        stats.message = "Cloudflare «Just a moment». Пройдите проверку в окне CloakBrowser — поиск продолжится сам.";
+        stats.message = "Cloudflare «Just a moment». Пройдите проверку в окне браузера — поиск продолжится сам.";
         emitStatus();
         const cleared = await browser.showForChallenge(() => stopRequested);
         stats.blocked = false;
@@ -208,22 +166,9 @@ function createEngine({ store, profileDir, emit }) {
     if (!source) throw new Error("Неизвестный сайт");
     if (!country) throw new Error("Выберите страну");
 
-    if (!hasLicenseKey()) {
-      stats.running = false;
-      stats.phase = "error";
-      stats.license = true;
-      stats.country = country;
-      stats.siteId = siteId;
-      stats.message = "Нужен бесплатный ключ CloakBrowser (cb_…). Возьмите его командой npx cloakbrowser login и вставьте сюда. Без ключа браузер не скачивается.";
-      store.setLast(siteId, country);
-      emitStatus();
-      return snapshot();
-    }
-
     stopRequested = false;
     running = true;
     stats.running = true;
-    stats.license = false;
     stats.requests = 0;
     stats.profiles = 0;
     stats.leads = store.leadsFor(country).length;
@@ -234,7 +179,7 @@ function createEngine({ store, profileDir, emit }) {
     stats.country = country;
     stats.siteId = siteId;
     stats.phase = "starting";
-    stats.message = "Запуск CloakBrowser…";
+    stats.message = "Запуск Chrome…";
     store.setLast(siteId, country);
     emitStatus();
     emit("leads", store.leadsFor(country));
@@ -242,11 +187,11 @@ function createEngine({ store, profileDir, emit }) {
     browser = createBrowser({
       userDataDir: profileDir,
       entryUrl: source.entryUrl,
-      onProgress: noteDownload
+      onProgress: noteProgress
     });
 
     try {
-      await browser.open(true);
+      await browser.open();
       if (stopRequested) {
         const error = new Error("stopped");
         error.code = "STOP";
@@ -258,12 +203,8 @@ function createEngine({ store, profileDir, emit }) {
       await source.run(makeCtx(source, country));
     } catch (error) {
       if (error.code !== "STOP") {
-        const message = error && error.message ? error.message : String(error);
         stats.phase = "error";
-        stats.license = /license key/i.test(message);
-        stats.message = stats.license
-          ? "CloakBrowser не принял ключ. Проверьте CLOAKBROWSER_LICENSE_KEY или вставьте новый ключ."
-          : message;
+        stats.message = error && error.message ? error.message : String(error);
         emitStatus();
       }
     } finally {
@@ -284,7 +225,7 @@ function createEngine({ store, profileDir, emit }) {
     return snapshot();
   }
 
-  return { start, stop, snapshot, saveLicenseKey, hasLicenseKey };
+  return { start, stop, snapshot };
 }
 
-module.exports = { createEngine, saveLicenseKey, hasLicenseKey, backoffMinutes, politeDelayMs };
+module.exports = { createEngine, backoffMinutes, politeDelayMs };

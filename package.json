@@ -7,12 +7,11 @@
   "private": true,
   "scripts": {
     "start": "node scripts/start.js",
-    "test": "node --test test/",
+    "test": "node --test test/*.js",
     "build": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --arm64"
   },
   "dependencies": {
-    "cloakbrowser": "0.7.2",
-    "playwright-core": "1.64.0"
+    "patchright": "1.64.3"
   },
   "devDependencies": {
     "electron": "33.4.11",
@@ -22,6 +21,10 @@
     "appId": "com.leadfinder.app",
     "productName": "Lead Finder",
     "asar": true,
+    "asarUnpack": [
+      "node_modules/patchright/**",
+      "node_modules/patchright-core/**"
+    ],
     "directories": {
       "output": "dist"
     },

@@ -50,7 +50,7 @@ app.whenReady().then(() => {
   store = createStore(path.join(dataDir, "lead-finder.json"));
   engine = createEngine({
     store,
-    profileDir: path.join(dataDir, "cloak-profile"),
+    profileDir: path.join(dataDir, "chrome-profile"),
     emit: send
   });
 
@@ -60,8 +60,7 @@ app.whenReady().then(() => {
     lastCountry: store.data.lastCountry || "",
     lastSite: store.data.lastSite || "myfxbook",
     leads: store.leadsFor(store.data.lastCountry || ""),
-    status: engine.snapshot(),
-    hasLicense: engine.hasLicenseKey()
+    status: engine.snapshot()
   }));
 
   ipcMain.handle("leads-for", (_event, country) => {
@@ -74,11 +73,6 @@ app.whenReady().then(() => {
   ipcMain.handle("stop", () => {
     engine.stop();
     return engine.snapshot();
-  });
-
-  ipcMain.handle("save-license", (_event, key) => {
-    engine.saveLicenseKey(key);
-    return { ok: true };
   });
 
   ipcMain.handle("open-url", (_event, raw) => {

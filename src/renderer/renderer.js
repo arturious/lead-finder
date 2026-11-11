@@ -7,11 +7,7 @@ const ui = {
   start: $("start"),
   rows: $("rows"),
   empty: $("empty"),
-  statusLine: $("status-line"),
-  license: $("license"),
-  licenseText: $("license-text"),
-  licenseNote: $("license-note"),
-  licenseKey: $("license-key")
+  statusLine: $("status-line")
 };
 
 const state = {
@@ -34,9 +30,6 @@ function setStatus(status) {
   ui.start.disabled = !state.running && !state.country;
   ui.site.disabled = state.running;
   ui.countryInput.disabled = state.running;
-  const showLicense = Boolean(status.license);
-  ui.license.hidden = !showLicense;
-  if (showLicense) ui.licenseText.textContent = status.message || "";
   document.querySelectorAll(".exports button").forEach((button) => {
     button.disabled = state.leads.size === 0;
   });
@@ -205,18 +198,6 @@ async function exportFile(kind) {
 $("export-csv").addEventListener("click", () => exportFile("csv"));
 $("export-xlsx").addEventListener("click", () => exportFile("xlsx"));
 
-$("license-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  ui.licenseNote.textContent = "";
-  try {
-    await window.leadfinder.saveLicense(ui.licenseKey.value);
-    ui.licenseKey.value = "";
-    ui.licenseNote.textContent = "Ключ сохранён. Можно запускать поиск.";
-  } catch (error) {
-    ui.licenseNote.textContent = error && error.message ? error.message : "Не удалось сохранить ключ";
-  }
-});
-
 window.leadfinder.onStatus(setStatus);
 window.leadfinder.onLead((payload) => {
   if (payload && payload.lead) upsertRow(payload.lead);
@@ -238,10 +219,6 @@ window.leadfinder.bootstrap().then((data) => {
   }
   replaceLeads(data.leads || []);
   setStatus(data.status || {});
-  if (!data.hasLicense) {
-    ui.license.hidden = false;
-    ui.licenseText.textContent = "Для первого запуска нужен бесплатный ключ CloakBrowser. Команда: npx cloakbrowser login. Затем вставьте ключ сюда — бинарник Chromium скачается при старте поиска, прогресс будет в строке статуса.";
-  }
 }).catch((error) => {
   ui.statusLine.textContent = error && error.message ? error.message : "Окно не связалось с приложением";
   ui.statusLine.className = "error";
