@@ -203,7 +203,7 @@ async function exportFile(kind) {
 
 ui.proxyInput.addEventListener("change", () => {
   window.leadfinder.saveProxy(ui.proxyInput.value);
-  if (state.running) ui.proxyNote.textContent = "Применится при следующем запуске.";
+  ui.proxyNote.textContent = "Браузер перезапускается с новым прокси.";
 });
 
 $("proxy-check").addEventListener("click", async () => {

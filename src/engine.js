@@ -1,4 +1,4 @@
-const { createBrowser } = require("./browser");
+const { createBrowser, shouldReuseBrowser } = require("./browser");
 const { getSource } = require("./sources");
 const { politeDelayMs, backoffMinutes, profileSlotsAfter } = require("./pacing");
 const { assertProxyReachable } = require("./proxy");
@@ -7,6 +7,9 @@ function createEngine({ store, profileDir, emit }) {
   let stopRequested = false;
   let running = false;
   let browser = null;
+  let launchedProxy = null;
+  let browserOpening = null;
+  let shuttingDown = false;
   let profileSlots = 2;
   let backoffTask = null;
   let challengeTask = null;
@@ -100,6 +103,16 @@ function createEngine({ store, profileDir, emit }) {
     while (!stopRequested) {
       await sleep(politeDelayMs());
       if (stopRequested) break;
+      if (!browser || !browser.isOpen()) {
+        try {
+          await ensureBrowser();
+        } catch (error) {
+          if (stopRequested) break;
+          await backoff(error && error.message ? error.message : "Браузер закрылся");
+          continue;
+        }
+        if (stopRequested || !browser || !browser.isOpen()) continue;
+      }
       stats.requests += 1;
       if (stats.phase !== "challenge") stats.phase = "running";
       emitStatus();
@@ -109,6 +122,15 @@ function createEngine({ store, profileDir, emit }) {
       } catch (error) {
         if (stopRequested) break;
         await backoff("Таймаут или обрыв");
+        continue;
+      }
+      if (result.closed || (browser && !browser.isOpen())) {
+        try {
+          await ensureBrowser();
+        } catch (error) {
+          if (stopRequested) break;
+          await backoff(error && error.message ? error.message : "Браузер закрылся");
+        }
         continue;
       }
       if (result.challenge) {
@@ -181,6 +203,82 @@ function createEngine({ store, profileDir, emit }) {
     };
   }
 
+  function entryUrl() {
+    const source = getSource(stats.siteId) || getSource("myfxbook");
+    return source ? source.entryUrl : "https://www.myfxbook.com/contests";
+  }
+
+  function currentProxy() {
+    return String(store.data.proxy || "").trim();
+  }
+
+  async function relaunch(proxy) {
+    const previous = browser;
+    browser = null;
+    if (previous) await previous.close().catch(() => {});
+    if (shuttingDown) return;
+    if (proxy) await assertProxyReachable(proxy);
+    if (shuttingDown) return;
+    const created = createBrowser({
+      userDataDir: profileDir,
+      entryUrl: entryUrl(),
+      onProgress: noteProgress,
+      proxy
+    });
+    browser = created;
+    launchedProxy = proxy;
+    await created.open();
+  }
+
+  async function ensureBrowser() {
+    if (browserOpening) {
+      await browserOpening.catch(() => {});
+      if (shuttingDown) return;
+    }
+    const proxy = currentProxy();
+    if (shouldReuseBrowser(browser && browser.isOpen(), launchedProxy, proxy)) return;
+    browserOpening = relaunch(proxy).finally(() => {
+      browserOpening = null;
+    });
+    await browserOpening;
+    if (!shuttingDown && launchedProxy !== currentProxy()) return ensureBrowser();
+  }
+
+  function warm() {
+    return ensureBrowser().then(() => {
+      if (running || shuttingDown) return snapshot();
+      stats.phase = "idle";
+      stats.message = "Выберите страну и нажмите «Начать поиск».";
+      stats.progress = null;
+      emitStatus();
+      return snapshot();
+    }).catch((error) => {
+      if (!running && !shuttingDown) {
+        stats.phase = "error";
+        stats.message = error && error.message ? error.message : String(error);
+        emitStatus();
+      }
+      return snapshot();
+    });
+  }
+
+  async function useProxy(value) {
+    store.setProxy(value);
+    if (browser || browserOpening) await ensureBrowser();
+    return snapshot();
+  }
+
+  async function shutdown() {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    stop();
+    if (browserOpening) await browserOpening.catch(() => {});
+    const current = browser;
+    browser = null;
+    launchedProxy = null;
+    if (current) await current.close().catch(() => {});
+  }
+
   async function start({ siteId, country }) {
     if (running) return snapshot();
     const source = getSource(siteId);
@@ -200,33 +298,14 @@ function createEngine({ store, profileDir, emit }) {
     profileSlots = 2;
     stats.country = country;
     stats.siteId = siteId;
-    stats.phase = "starting";
-    stats.message = "Запуск Chrome…";
+    stats.phase = "running";
+    stats.message = "Открываю Myfxbook…";
     store.setLast(siteId, country);
     emitStatus();
     emit("leads", store.leadsFor(country));
 
-    const proxy = String(store.data.proxy || "").trim();
     try {
-      if (proxy) {
-        stats.message = "Проверяю прокси…";
-        emitStatus();
-        await assertProxyReachable(proxy);
-        if (stopRequested) {
-          const error = new Error("stopped");
-          error.code = "STOP";
-          throw error;
-        }
-        stats.message = "Запуск Chrome…";
-        emitStatus();
-      }
-      browser = createBrowser({
-        userDataDir: profileDir,
-        entryUrl: source.entryUrl,
-        onProgress: noteProgress,
-        proxy
-      });
-      await browser.open();
+      await ensureBrowser();
       if (stopRequested) {
         const error = new Error("stopped");
         error.code = "STOP";
@@ -243,8 +322,6 @@ function createEngine({ store, profileDir, emit }) {
         emitStatus();
       }
     } finally {
-      if (browser) await browser.close().catch(() => {});
-      browser = null;
       running = false;
       stats.running = false;
       stats.blocked = false;
@@ -260,12 +337,17 @@ function createEngine({ store, profileDir, emit }) {
     return snapshot();
   }
 
-  function showBrowser() {
+  async function showBrowser() {
+    try {
+      await ensureBrowser();
+    } catch {
+      return false;
+    }
     if (!browser || typeof browser.showWindow !== "function") return false;
     return browser.showWindow();
   }
 
-  return { start, stop, snapshot, showBrowser };
+  return { start, stop, snapshot, showBrowser, warm, useProxy, shutdown };
 }
 
 module.exports = { createEngine, backoffMinutes, politeDelayMs };

@@ -4,11 +4,11 @@ const {
   parseInstallLine,
   isMissingChrome,
   shouldBlockResource,
-  challengeRetryDelayMs,
-  challengeAttemptMessage,
-  retryChallengeQuietly,
+  reloadUntilClear,
   browserLaunchArgs,
-  CHALLENGE_STILL_MESSAGE
+  shouldReuseBrowser,
+  CHALLENGE_RELOAD_MESSAGE,
+  CHALLENGE_RELOAD_MS
 } = require("../src/browser");
 
 test("chromium download progress is a status update", () => {
@@ -44,58 +44,48 @@ test("only a missing system Chrome falls back to Chromium", () => {
   assert.equal(isMissingChrome(new Error("browserType.launchPersistentContext: Target closed")), false);
 });
 
-test("cloudflare challenge reloads with a growing pause before the window is shown", async () => {
-  assert.equal(challengeRetryDelayMs(1, () => 0), 5000);
-  assert.equal(challengeRetryDelayMs(1, () => 1), 8000);
-  assert.equal(challengeRetryDelayMs(2, () => 0), 10000);
-  assert.equal(challengeRetryDelayMs(3, () => 1), 24000);
-  assert.equal(challengeAttemptMessage(2), "Cloudflare: попытка 2/3…");
+test("cloudflare reloads immediately, then every 3 seconds, until it clears", async () => {
+  assert.equal(CHALLENGE_RELOAD_MS, 3000);
+  assert.equal(CHALLENGE_RELOAD_MESSAGE, "Cloudflare: обновляю страницу…");
 
-  const pauses = [];
-  let reloads = 0;
+  const steps = [];
   let challenged = true;
-  const cleared = await retryChallengeQuietly({
+  const cleared = await reloadUntilClear({
     looksChallenged: async () => challenged,
     reload: async () => {
-      reloads += 1;
-      if (reloads === 2) challenged = false;
+      steps.push("reload");
+      if (steps.filter((step) => step === "reload").length === 2) challenged = false;
     },
-    sleep: async (ms) => { pauses.push(ms); },
-    delayMs: (attempt) => challengeRetryDelayMs(attempt, () => 0),
-    onAttempt: (attempt, total) => {
-      pauses.push(challengeAttemptMessage(attempt, total));
-    }
+    sleep: async (ms) => { steps.push(ms); },
+    onReload: () => { steps.push(CHALLENGE_RELOAD_MESSAGE); },
+    pauseMs: CHALLENGE_RELOAD_MS
   });
   assert.equal(cleared, true);
-  assert.equal(reloads, 2);
-  assert.deepEqual(pauses, [
-    "Cloudflare: попытка 1/3…",
-    5000,
-    "Cloudflare: попытка 2/3…",
-    10000
+  assert.deepEqual(steps, [
+    CHALLENGE_RELOAD_MESSAGE,
+    "reload",
+    3000,
+    CHALLENGE_RELOAD_MESSAGE,
+    "reload"
   ]);
 
-  let stuckReloads = 0;
-  const stuck = await retryChallengeQuietly({
-    looksChallenged: async () => true,
-    reload: async () => { stuckReloads += 1; },
-    sleep: async () => {},
-    delayMs: () => 0,
-    onAttempt: () => {}
-  });
-  assert.equal(stuck, false);
-  assert.equal(stuckReloads, 3);
-
   let stoppedReloads = 0;
-  const stopped = await retryChallengeQuietly({
+  const stopped = await reloadUntilClear({
     shouldStop: () => true,
     looksChallenged: async () => true,
     reload: async () => { stoppedReloads += 1; },
     sleep: async () => {},
-    onAttempt: () => {}
+    onReload: () => {}
   });
   assert.equal(stopped, false);
   assert.equal(stoppedReloads, 0);
+});
+
+test("the hidden browser is reused until the proxy changes or it closes", () => {
+  assert.equal(shouldReuseBrowser(true, "socks5://127.0.0.1:1080", "socks5://127.0.0.1:1080"), true);
+  assert.equal(shouldReuseBrowser(true, "", ""), true);
+  assert.equal(shouldReuseBrowser(true, "", "socks5://127.0.0.1:1080"), false);
+  assert.equal(shouldReuseBrowser(false, "socks5://127.0.0.1:1080", "socks5://127.0.0.1:1080"), false);
 });
 
 test("the browser launches headed, off-screen, and is not minimized", () => {
@@ -108,5 +98,4 @@ test("the browser launches headed, off-screen, and is not minimized", () => {
   assert.ok(args.includes("--disable-renderer-backgrounding"));
   assert.ok(args.includes("--disable-background-timer-throttling"));
   assert.ok(browserLaunchArgs({ sandbox: false }).includes("--no-sandbox"));
-  assert.match(CHALLENGE_STILL_MESSAGE, /Окно скрыто/);
 });

@@ -70,19 +70,16 @@ app.whenReady().then(() => {
     return store.leadsFor(country);
   });
 
-  ipcMain.handle("start", (_event, payload) => {
+  ipcMain.handle("start", async (_event, payload) => {
     const body = payload || {};
-    if (Object.prototype.hasOwnProperty.call(body, "proxy")) store.setProxy(body.proxy);
+    if (Object.prototype.hasOwnProperty.call(body, "proxy")) await engine.useProxy(body.proxy);
     return engine.start(body);
   });
 
-  ipcMain.handle("save-proxy", (_event, value) => {
-    store.setProxy(value);
-    return { ok: true };
-  });
+  ipcMain.handle("save-proxy", (_event, value) => engine.useProxy(value));
 
   ipcMain.handle("check-proxy", async (_event, value) => {
-    store.setProxy(value);
+    await engine.useProxy(value);
     try {
       const ip = await checkExitIp(value);
       return { ok: true, message: `Прокси работает. Внешний IP: ${ip}` };
@@ -126,9 +123,20 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  engine.warm();
 });
 
-app.on("window-all-closed", () => {
-  if (engine) engine.stop();
-  app.quit();
+let quitting = false;
+function quitApp() {
+  if (quitting) return;
+  quitting = true;
+  const closing = engine ? engine.shutdown() : Promise.resolve();
+  closing.finally(() => app.quit());
+}
+
+app.on("window-all-closed", quitApp);
+app.on("before-quit", (event) => {
+  if (quitting) return;
+  event.preventDefault();
+  quitApp();
 });

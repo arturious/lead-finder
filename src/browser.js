@@ -10,9 +10,10 @@ function shouldBlockResource(type) {
   return BLOCKED_TYPES.has(type);
 }
 
-// Headed Chrome, parked off-screen. A minimized window gets throttled and
-// Cloudflare stalls, so the window stays normal and is never brought forward.
-// viewport stays null and userAgent is unset: both overrides are a fingerprint.
+// Headed Chrome, parked off-screen for the whole app lifetime. A minimized
+// window gets throttled and Cloudflare stalls, so the window stays normal
+// and is never brought forward on its own. viewport stays null and userAgent
+// is unset: both overrides are a fingerprint.
 
 function parseInstallLine(line) {
   const text = String(line || "").replace(/\u001b\[[0-9;]*m/g, "").trim();
@@ -80,21 +81,12 @@ function wantsSandbox() {
   return typeof process.getuid !== "function" || process.getuid() !== 0;
 }
 
-const CHALLENGE_ATTEMPTS = 3;
+const CHALLENGE_RELOAD_MS = 3000;
+const CHALLENGE_RELOAD_MESSAGE = "Cloudflare: обновляю страницу…";
 
-// 5–8 s on the first try, then the same span times the attempt number.
-function challengeRetryDelayMs(attempt, random = Math.random) {
-  const n = Math.min(CHALLENGE_ATTEMPTS, Math.max(1, Number(attempt) || 1));
-  const roll = typeof random === "function" ? Number(random()) : Number(random);
-  const unit = 5000 + 3000 * Math.min(1, Math.max(0, roll));
-  return Math.round(unit * n);
+function shouldReuseBrowser(open, launchedProxy, proxy) {
+  return Boolean(open) && String(launchedProxy || "") === String(proxy || "");
 }
-
-function challengeAttemptMessage(attempt, total = CHALLENGE_ATTEMPTS) {
-  return `Cloudflare: попытка ${attempt}/${total}…`;
-}
-
-const CHALLENGE_STILL_MESSAGE = "Cloudflare всё ещё на странице. Окно скрыто, проверка повторяется.";
 
 function browserLaunchArgs({ sandbox }) {
   const args = [
@@ -108,25 +100,21 @@ function browserLaunchArgs({ sandbox }) {
   return args;
 }
 
-// Wait, then reload. No clicks. True when the existing challenge check clears.
-async function retryChallengeQuietly({
+// Reload immediately, then every few seconds. No clicks and no window.
+async function reloadUntilClear({
   looksChallenged,
   reload,
   sleep,
   shouldStop,
-  onAttempt,
-  attempts = CHALLENGE_ATTEMPTS,
-  delayMs = challengeRetryDelayMs
+  onReload,
+  pauseMs = CHALLENGE_RELOAD_MS
 }) {
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    if (shouldStop && shouldStop()) return false;
-    if (onAttempt) onAttempt(attempt, attempts);
-    await sleep(delayMs(attempt));
-    if (shouldStop && shouldStop()) return false;
-    if (!(await looksChallenged())) return true;
+  while (!(shouldStop && shouldStop())) {
+    if (onReload) onReload();
     await reload();
     if (shouldStop && shouldStop()) return false;
     if (!(await looksChallenged())) return true;
+    await sleep(pauseMs);
   }
   return false;
 }
@@ -305,10 +293,17 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
     }
   }
 
+  function isOpen() {
+    try {
+      return Boolean(context && page && !page.isClosed());
+    } catch {
+      return false;
+    }
+  }
+
   async function ensurePage() {
-    if (page && context) return page;
-    await open();
-    return page;
+    if (isOpen()) return page;
+    return null;
   }
 
   function onSite(task) {
@@ -342,7 +337,7 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
 
   async function fetch(url, { xhr = false } = {}) {
     const target = await ensurePage();
-    if (!target) return { timeout: true };
+    if (!target) return { closed: true };
     const prelude = await onSite(async () => {
       let current = "";
       try { current = target.url(); } catch { current = ""; }
@@ -380,6 +375,7 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
         }
       }, { url, xhr: !!xhr });
     } catch (error) {
+      if (!isOpen()) return { closed: true, error: String(error && error.message || error) };
       return { timeout: true, error: String(error && error.message || error) };
     }
 
@@ -395,37 +391,18 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
   async function showForChallenge(shouldStop) {
     const target = await ensurePage();
     if (!target) return false;
-    if (!(await pageLooksChallenged(target))) {
-      const ok = await gotoEntry(target);
-      if (!ok) return false;
-    }
-    if (!(await pageLooksChallenged(target))) return true;
-    let quiet = true;
-    while (!(shouldStop && shouldStop())) {
-      const cleared = await retryChallengeQuietly({
-        looksChallenged: () => pageLooksChallenged(target),
-        reload: () => target.reload({ waitUntil: "domcontentloaded", timeout: 90000 }).catch(() => {}),
-        sleep: (ms) => waitMs(ms, shouldStop),
-        shouldStop,
-        onAttempt: (attempt, total) => {
-          report({
-            phase: "challenge",
-            message: quiet ? challengeAttemptMessage(attempt, total) : CHALLENGE_STILL_MESSAGE
-          });
-        }
-      });
-      if (shouldStop && shouldStop()) return false;
-      if (cleared) {
-        report({ phase: "running", message: "Проверка Cloudflare прошла, продолжаю поиск." });
-        return true;
-      }
-      quiet = false;
-      report({ phase: "challenge", message: CHALLENGE_STILL_MESSAGE });
-    }
-    return false;
+    const cleared = await reloadUntilClear({
+      looksChallenged: () => pageLooksChallenged(target),
+      reload: () => target.reload({ waitUntil: "domcontentloaded", timeout: 90000 }).catch(() => {}),
+      sleep: (ms) => waitMs(ms, shouldStop),
+      shouldStop,
+      onReload: () => report({ phase: "challenge", message: CHALLENGE_RELOAD_MESSAGE })
+    });
+    if (cleared) report({ phase: "running", message: "Проверка Cloudflare прошла, продолжаю поиск." });
+    return cleared;
   }
 
-  return { open, close, fetch, showForChallenge, showWindow };
+  return { open, close, fetch, showForChallenge, showWindow, isOpen };
 }
 
 patchDriverFork();
@@ -435,10 +412,9 @@ module.exports = {
   parseInstallLine,
   isMissingChrome,
   shouldBlockResource,
-  challengeRetryDelayMs,
-  challengeAttemptMessage,
-  retryChallengeQuietly,
+  reloadUntilClear,
   browserLaunchArgs,
-  CHALLENGE_STILL_MESSAGE,
-  CHALLENGE_ATTEMPTS
+  shouldReuseBrowser,
+  CHALLENGE_RELOAD_MESSAGE,
+  CHALLENGE_RELOAD_MS
 };
