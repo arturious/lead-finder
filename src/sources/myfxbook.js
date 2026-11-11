@@ -246,7 +246,10 @@ async function locateContest(ctx, contestId, target) {
   const rows1 = first.status === 200 ? parseContestRows(first.text) : [];
   const total = first.status === 200 ? parseTotal(first.text) : 0;
   const pages = total > 0 ? Math.ceil(total / 20) : (rows1.length ? 1 : 0);
-  if (!pages) return { start: 1, pages: 0, cache: new Map() };
+  if (!pages) {
+    note(ctx, `contest ${contestId} pages=0 start=1`);
+    return { start: 1, pages: 0, cache: new Map() };
+  }
   const found = await findCountryStart({
     pages,
     target,
@@ -257,6 +260,7 @@ async function locateContest(ctx, contestId, target) {
     }
   });
   if (!found.cache.has(1)) found.cache.set(1, rows1);
+  note(ctx, `contest ${contestId} pages=${pages} start=${found.start}`);
   return { start: found.start, pages, cache: found.cache };
 }
 
@@ -293,9 +297,16 @@ async function readContestSlice(ctx, contestId, cursor, sourceLabel) {
   return finished;
 }
 
+function note(ctx, line) {
+  if (typeof ctx.log === "function") ctx.log(line);
+}
+
 async function ensureContests(ctx, state) {
   if (ctx.stopped()) return;
-  if (!state.refreshContests && state.liveId) return;
+  // A saved cursor can say the live contest is finished after an empty page.
+  // Fetch /contests again so the live id is discovered before the archives.
+  const liveMissed = state.liveDone && !state.livePages;
+  if (!state.refreshContests && state.liveId && !liveMissed) return;
   ctx.setSource("список конкурсов");
   const res = await ctx.request(`${BASE}/contests`);
   if (ctx.stopped() || !res) return;
@@ -331,7 +342,7 @@ async function ensureContests(ctx, state) {
     const merged = [...new Set([...extra.sort((a, b) => b - a), ...pending])];
     state.histIds = [...done, ...merged];
   }
-  if (state.liveId !== live) {
+  if (state.liveId !== live || liveMissed) {
     state.liveId = live;
     state.liveLocated = false;
     state.liveDone = false;
@@ -340,6 +351,7 @@ async function ensureContests(ctx, state) {
     state.liveCache = null;
   }
   state.refreshContests = false;
+  note(ctx, `contests live=${live} hist=${(state.histIds || []).length}`);
 }
 
 function rememberOtherCountries(ctx, cache, start) {

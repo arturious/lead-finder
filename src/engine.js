@@ -262,7 +262,7 @@ function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand
           logLine(`camoufox unavailable: ${startError}; engine=window`);
           httpState.mode = "window";
         } else {
-          return await camoufox.fetch(url);
+          return await camoufox.fetch(url, options || {});
         }
       } catch (error) {
         const code = error && error.code;
@@ -419,6 +419,9 @@ function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand
       country,
       stopped: () => stopRequested,
       request,
+      log(line) {
+        logLine(String(line || ""));
+      },
       profileSlots: () => (httpState.mode === "camoufox" ? camoufoxSlots(pace.slots) : pace.slots),
       shouldRecheck: (username) => store.shouldRecheck(username),
       sleep,

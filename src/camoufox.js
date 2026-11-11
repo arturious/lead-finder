@@ -219,7 +219,7 @@ function createCamoufoxClient({ command, args, profileDir, proxy, log }) {
     };
   }
 
-  async function fetch(url) {
+  async function fetch(url, options = {}) {
     const ticket = epoch;
     const starting = start();
     starting.catch(() => {});
@@ -251,7 +251,7 @@ function createCamoufoxClient({ command, args, profileDir, proxy, log }) {
           reject(error);
         }
       });
-      child.stdin.write(`${JSON.stringify({ id, url })}\n`);
+      child.stdin.write(`${JSON.stringify({ id, url, xhr: Boolean(options && options.xhr) })}\n`);
     });
     return toFetchResult(msg);
   }

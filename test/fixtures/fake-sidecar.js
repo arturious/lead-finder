@@ -12,7 +12,7 @@ rl.on("line", (line) => {
   process.stdout.write(`${JSON.stringify({
     id: msg.id,
     status: challenge ? 403 : 200,
-    html: challenge ? "<title>Just a moment...</title> challenge-platform" : `ok ${process.env.LEADFINDER_PROXY || ""}`,
+    html: challenge ? "<title>Just a moment...</title> challenge-platform" : `ok xhr=${msg.xhr ? "1" : "0"} ${process.env.LEADFINDER_PROXY || ""}`,
     finalUrl: msg.url,
     ms: 15,
     challenge

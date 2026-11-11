@@ -4,8 +4,10 @@ Python 3.10–3.13 only. Camoufox fails on 3.14+ (PyYAML CLoader, fpgen).
 Two pages stay open and are reused. The route is registered once on the context.
 Images, fonts and media are blocked there. block_images stays off: Camoufox
 treats that flag as a WAF signal. Challenge scripts are left alone.
-The same profile is relaunched every 300 pages, or when the browser RSS
-passes 1.5 GB, so cf_clearance survives.
+The same profile is relaunched every 300 pages, or after 25 pages when the
+largest browser process passes 1.5 GB (shared pages are not summed), so
+cf_clearance survives. A process that starts above the cap is left alone
+until it grows another 512 MB.
 """
 
 import asyncio
@@ -167,18 +169,33 @@ def probe_waiting(probe, mitigated=""):
     return False
 
 
-def needs_recycle(pages_done, rss_bytes, hold_rss=False):
-    """hold_rss is set when a fresh browser is already over the cap, so it is not relaunched every page."""
+MIN_RSS_PAGES = 25
+RSS_GROWTH_BYTES = 512 * 1024 * 1024
+
+
+def needs_recycle(pages_done, rss_bytes, hold_rss=False, baseline=0):
+    """Recycle on page count, or after the main process grows past the cap.
+
+    A browser that is already large at startup must not relaunch on page 1.
+    hold_rss keeps that guard for a process that was just relaunched.
+    """
     done = int(pages_done or 0)
     if done >= RECYCLE_PAGES:
         return True
-    if hold_rss:
+    if hold_rss or done < MIN_RSS_PAGES:
         return False
     try:
         rss = int(rss_bytes or 0)
     except (TypeError, ValueError):
         rss = 0
-    return done > 0 and rss > RSS_LIMIT_BYTES
+    try:
+        base = int(baseline or 0)
+    except (TypeError, ValueError):
+        base = 0
+    floor = RSS_LIMIT_BYTES
+    if base > floor:
+        floor = base + RSS_GROWTH_BYTES
+    return rss > floor
 
 
 def _proc_rss(pid):
@@ -219,10 +236,14 @@ def _ps_rows():
 
 
 def browser_rss_bytes(root=None):
-    """RSS of the browser tree, not the Python process itself."""
+    """RSS of the largest browser process, not the sum of the tree.
+
+    Plugin-containers and the GPU process each report shared pages, so a sum
+    looks like 2.5 GB while the main process is still near the startup size.
+    """
     root = os.getpid() if root is None else int(root)
+    largest = 0
     if os.path.isdir("/proc"):
-        total = 0
         stack = _proc_children(root)
         seen = set()
         while stack:
@@ -230,16 +251,15 @@ def browser_rss_bytes(root=None):
             if pid in seen:
                 continue
             seen.add(pid)
-            total += _proc_rss(pid)
+            largest = max(largest, _proc_rss(pid))
             stack.extend(_proc_children(pid))
-        return total
+        return largest
     rows = _ps_rows()
     by_parent = {}
     rss = {}
     for pid, ppid, size in rows:
         rss[pid] = size
         by_parent.setdefault(ppid, []).append(pid)
-    total = 0
     stack = list(by_parent.get(root, []))
     seen = set()
     while stack:
@@ -247,9 +267,9 @@ def browser_rss_bytes(root=None):
         if pid in seen:
             continue
         seen.add(pid)
-        total += rss.get(pid, 0)
+        largest = max(largest, rss.get(pid, 0))
         stack.extend(by_parent.get(pid, []))
-    return total
+    return largest
 
 
 async def intercept(route):
@@ -354,65 +374,155 @@ async def cheap_probe(page):
     return probe
 
 
-async def fetch_page(pool, url):
+ORIGIN = "https://www.myfxbook.com"
+XHR_JS = """async (url) => {
+  try {
+    const res = await fetch(url, {
+      credentials: "include",
+      redirect: "follow",
+      headers: {
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "text/html, */*; q=0.8"
+      }
+    });
+    return {
+      status: res.status,
+      text: await res.text(),
+      mitigated: res.headers.get("cf-mitigated") || ""
+    };
+  } catch (error) {
+    return { status: 0, text: "", mitigated: "", error: String(error && error.message || error) };
+  }
+}"""
+
+
+def on_myfxbook(page):
+    try:
+        return str(page.url or "").startswith(ORIGIN)
+    except Exception:
+        return False
+
+
+def xhr_challenged(data):
+    if not isinstance(data, dict):
+        return False
+    try:
+        status = int(data.get("status") or 0)
+    except (TypeError, ValueError):
+        status = 0
+    mitigated = str(data.get("mitigated") or "")
+    html = str(data.get("text") or "")
+    if status in (403, 503) and re.search(r"challenge", mitigated, re.I):
+        return True
+    return is_challenge(html, "", mitigated)
+
+
+async def read_document(page, url, started):
+    status = 0
+    mitigated = ""
+    try:
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=GOTO_TIMEOUT_MS)
+        if response is not None:
+            status = response.status
+            mitigated = header_value(response, "cf-mitigated")
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        final = ""
+        try:
+            final = page.url
+        except Exception:
+            final = ""
+        return blank(started, str(error), final)
+    deadline = time.monotonic() + CHALLENGE_WAIT_S
+    while True:
+        probe = await cheap_probe(page)
+        if not probe_waiting(probe, mitigated) or time.monotonic() >= deadline:
+            break
+        try:
+            await page.wait_for_timeout(CHALLENGE_POLL_MS)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            break
+    try:
+        html = await page.content()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        html = ""
+    try:
+        title = await page.title()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        title = ""
+    challenged = is_challenge(html, title, mitigated)
+    if not challenged and status in (403, 503) and not HARD_BLOCK.search(html or ""):
+        status = 200
+    final_url = url
+    try:
+        final_url = page.url or url
+    except Exception:
+        final_url = url
+    return {
+        "status": status,
+        "html": html,
+        "finalUrl": final_url,
+        "ms": elapsed(started),
+        "challenge": challenged,
+    }
+
+
+async def read_xhr(page, url):
+    try:
+        data = await page.evaluate(XHR_JS, url)
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        return {"status": 0, "text": "", "mitigated": "", "error": str(error)}
+    if not isinstance(data, dict):
+        return {"status": 0, "text": "", "mitigated": "", "error": "empty xhr"}
+    return data
+
+
+async def fetch_xhr(page, url, started):
+    if not on_myfxbook(page):
+        opened = await read_document(page, f"{ORIGIN}/contests", started)
+        if opened.get("error") or opened.get("challenge") or not on_myfxbook(page):
+            return opened
+    data = await read_xhr(page, url)
+    if data.get("error") and not data.get("text"):
+        return blank(started, str(data.get("error")), url)
+    if xhr_challenged(data):
+        referer = page.url if on_myfxbook(page) else f"{ORIGIN}/contests"
+        cleared = await read_document(page, referer, started)
+        if cleared.get("challenge"):
+            return cleared
+        data = await read_xhr(page, url)
+        if data.get("error") and not data.get("text"):
+            return blank(started, str(data.get("error")), url)
+    try:
+        status = int(data.get("status") or 0)
+    except (TypeError, ValueError):
+        status = 0
+    return {
+        "status": status,
+        "html": str(data.get("text") or ""),
+        "finalUrl": url,
+        "ms": elapsed(started),
+        "challenge": xhr_challenged(data),
+    }
+
+
+async def fetch_page(pool, url, xhr=False):
     started = time.monotonic()
     await pool.ensure()
     page = await pool.acquire()
     try:
-        status = 0
-        mitigated = ""
-        try:
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=GOTO_TIMEOUT_MS)
-            if response is not None:
-                status = response.status
-                mitigated = header_value(response, "cf-mitigated")
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            final = ""
-            try:
-                final = page.url
-            except Exception:
-                final = ""
-            return blank(started, str(error), final)
-        deadline = time.monotonic() + CHALLENGE_WAIT_S
-        while True:
-            probe = await cheap_probe(page)
-            if not probe_waiting(probe, mitigated) or time.monotonic() >= deadline:
-                break
-            try:
-                await page.wait_for_timeout(CHALLENGE_POLL_MS)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                break
-        try:
-            html = await page.content()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            html = ""
-        try:
-            title = await page.title()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            title = ""
-        challenged = is_challenge(html, title, mitigated)
-        if not challenged and status in (403, 503) and not HARD_BLOCK.search(html or ""):
-            status = 200
-        final_url = url
-        try:
-            final_url = page.url or url
-        except Exception:
-            final_url = url
-        return {
-            "status": status,
-            "html": html,
-            "finalUrl": final_url,
-            "ms": elapsed(started),
-            "challenge": challenged,
-        }
+        if xhr:
+            return await fetch_xhr(page, url, started)
+        return await read_document(page, url, started)
     finally:
         await pool.release(page)
 
@@ -500,6 +610,7 @@ async def serve(options):
         "recycling": False,
         "closing": False,
         "hold_rss": False,
+        "baseline": 0,
     }
     idle = asyncio.Condition()
     inflight = set()
@@ -523,18 +634,18 @@ async def serve(options):
             rss = browser_rss_bytes()
             note_err(f"camoufox recycle pages={state['pages']} rss={rss}")
             installed = fresh
-            hold = rss > RSS_LIMIT_BYTES
             failed = False
         except Exception as error:
             note_err(f"camoufox recycle failed: {error}")
             installed = (None, None)
-            hold = False
+            rss = 0
             failed = True
         async with idle:
             state["cm"], state["pool"] = installed
             if not failed:
                 state["pages"] = 0
-                state["hold_rss"] = hold
+                state["baseline"] = rss if rss > 0 else 0
+                state["hold_rss"] = False
             state["recycling"] = False
             idle.notify_all()
 
@@ -542,7 +653,10 @@ async def serve(options):
         async with idle:
             if state["closing"] or state["recycling"] or state["active"] != 0:
                 return None
-            if not needs_recycle(state["pages"], browser_rss_bytes(), state["hold_rss"]):
+            rss = browser_rss_bytes()
+            if state["baseline"] <= 0 and rss > 0:
+                state["baseline"] = rss
+            if not needs_recycle(state["pages"], rss, state["hold_rss"], state["baseline"]):
                 return None
             state["recycling"] = True
             old = (state["cm"], state["pool"])
@@ -576,7 +690,8 @@ async def serve(options):
             async with idle:
                 state["cm"], state["pool"] = fresh
                 state["pages"] = 0
-                state["hold_rss"] = browser_rss_bytes() > RSS_LIMIT_BYTES
+                state["baseline"] = 0
+                state["hold_rss"] = False
                 state["recycling"] = False
                 if state["closing"]:
                     idle.notify_all()
@@ -587,7 +702,7 @@ async def serve(options):
                 idle.notify_all()
         try:
             try:
-                result = await fetch_page(pool_ref, msg.get("url") or "")
+                result = await fetch_page(pool_ref, msg.get("url") or "", bool(msg.get("xhr")))
             except asyncio.CancelledError:
                 raise
             except Exception as error:

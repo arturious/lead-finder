@@ -69,7 +69,11 @@ assert s.needs_recycle(299, 0) is False
 assert s.needs_recycle(300, 0, True) is True
 assert s.needs_recycle(0, limit + 1) is False
 assert s.needs_recycle(1, limit) is False
-assert s.needs_recycle(1, limit + 1) is True
+assert s.needs_recycle(1, limit + 1) is False
+assert s.needs_recycle(25, limit + 1) is True
+assert s.needs_recycle(25, limit + 1, False, limit + 1) is False
+growth = 512 * 1024 * 1024
+assert s.needs_recycle(25, limit + growth + 2, False, limit + 1) is True
 assert s.needs_recycle(1, limit + 1, True) is False
 assert s.probe_waiting({"title": "Just a moment...", "challenge": False, "chars": 10}) is True
 assert s.probe_waiting({"title": "Attention Required! | Cloudflare", "challenge": False, "chars": 0}) is True
@@ -162,7 +166,11 @@ test("the client pairs responses by id and restarts when the proxy changes", asy
     assert.equal(blocked.status, 403);
     await client.useProxy("http://127.0.0.1:8080");
     const next = await client.fetch("https://www.myfxbook.com/contests");
+    assert.match(next.text, /xhr=0/);
     assert.match(next.text, /http:\/\/127\.0\.0\.1:8080/);
+    const paging = await client.fetch("https://www.myfxbook.com/paging.html?pt=24&p=1&id=22", { xhr: true });
+    assert.equal(paging.status, 200);
+    assert.match(paging.text, /xhr=1/);
   } finally {
     await client.close();
   }
