@@ -45,9 +45,12 @@ function parseTotal(html) {
   return m ? Number(m[1]) : 0;
 }
 
+// /contests/51, /contests/old-name-22, and /contests/moneta-funded/52/rules
+const CONTEST_ID_RE = /\/contests\/(?:[a-z0-9-]+\/)?(?:[a-z0-9-]*-)?(\d+)\b/gi;
+
 function parseContestIds(html) {
   const ids = new Set();
-  const re = /\/contests\/(?:[a-z0-9-]*-)?(\d+)\b/gi;
+  const re = new RegExp(CONTEST_ID_RE.source, "gi");
   let m;
   while ((m = re.exec(String(html || "")))) {
     const id = Number(m[1]);
@@ -56,17 +59,23 @@ function parseContestIds(html) {
   return [...ids].sort((a, b) => a - b);
 }
 
+function contestIsOpen(around) {
+  if (/\bregistration\s+ended\b/i.test(around)) return false;
+  if (/\b(ended|has ended)\b/i.test(around) && !/\bregistration\b/i.test(around)) return false;
+  return /\b(registration|running|ongoing|in progress|join now|current)\b/i.test(around);
+}
+
 function parseLiveContestId(html, ids) {
   const text = String(html || "");
-  const linkRe = /\/contests\/(?:[a-z0-9-]*-)?(\d+)\b/gi;
-  let best = null;
+  const linkRe = new RegExp(CONTEST_ID_RE.source, "gi");
   let m;
   while ((m = linkRe.exec(text))) {
-    const start = Math.max(0, m.index - 400);
-    const around = text.slice(start, m.index + 400);
-    if (/\b(live|ongoing|in progress|current)\b/i.test(around)) best = Number(m[1]);
+    const id = Number(m[1]);
+    if (id < 1 || id >= 500) continue;
+    const around = text.slice(Math.max(0, m.index - 120), m.index + 700);
+    // "Live Forex Contest" is a name. Registration / Join Now is the open one.
+    if (contestIsOpen(around)) return id;
   }
-  if (best) return best;
   return ids && ids.length ? ids[ids.length - 1] : null;
 }
 

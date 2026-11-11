@@ -1,8 +1,9 @@
 // Myfxbook public pages only. No login, no messages.
-// Round order: live contest (target country) → recent forum → systems with a
-// short lastTraded window → one slice of a historical contest. Profile pages
-// are opened only for usernames that are not already in the on-disk cache.
-// When every source is exhausted, sleep 5–10 minutes and start again from the newest.
+// Round order: the open contest, all pages, then every ended contest newest
+// to oldest, all pages, then the forum, then systems. Nothing else runs
+// between those. Profile pages are opened only for usernames that are not
+// already in the on-disk cache. When every source is exhausted, sleep 5–10
+// minutes and start again from the open contest.
 
 const {
   countryMatches,
@@ -324,6 +325,7 @@ async function ensureContests(ctx, state) {
     }
   }
   if (!live) live = ids.length ? ids[ids.length - 1] : 51;
+  const found = ids.length;
   if (ids.length <= 1) {
     ids = [];
     for (let id = Math.max(1, live - 60); id <= live; id++) ids.push(id);
@@ -351,7 +353,7 @@ async function ensureContests(ctx, state) {
     state.liveCache = null;
   }
   state.refreshContests = false;
-  note(ctx, `contests live=${live} hist=${(state.histIds || []).length}`);
+  note(ctx, `contests live=${live} hist=${(state.histIds || []).length} total=${found}`);
 }
 
 function rememberOtherCountries(ctx, cache, start) {
@@ -504,17 +506,25 @@ async function run(ctx) {
   while (!ctx.stopped()) {
     await ensureContests(ctx, state);
     if (ctx.stopped()) break;
-    await stepLive(ctx, state);
-    ctx.saveCursors(persistable(state));
+    while (!ctx.stopped() && !state.liveDone) {
+      await stepLive(ctx, state);
+      ctx.saveCursors(persistable(state));
+    }
     if (ctx.stopped()) break;
-    await stepForum(ctx, state);
-    ctx.saveCursors(persistable(state));
+    while (!ctx.stopped() && state.histIndex < (state.histIds || []).length) {
+      await stepHistorical(ctx, state);
+      ctx.saveCursors(persistable(state));
+    }
     if (ctx.stopped()) break;
-    await stepSystems(ctx, state);
-    ctx.saveCursors(persistable(state));
+    while (!ctx.stopped() && !state.forumDone) {
+      await stepForum(ctx, state);
+      ctx.saveCursors(persistable(state));
+    }
     if (ctx.stopped()) break;
-    await stepHistorical(ctx, state);
-    ctx.saveCursors(persistable(state));
+    while (!ctx.stopped() && !state.systemsDone) {
+      await stepSystems(ctx, state);
+      ctx.saveCursors(persistable(state));
+    }
     if (ctx.stopped()) break;
 
     if (exhausted(state)) {

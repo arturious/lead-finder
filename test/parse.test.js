@@ -159,6 +159,15 @@ test("contest index and cloudflare pages", () => {
   const ids = parseContestIds(html);
   assert.deepEqual(ids, [48, 51]);
   assert.equal(parseLiveContestId(html, ids), 51);
+  const listed = `
+    <a href="/contests/moneta-funded/52">Moneta Funded</a> Registration Join Now
+    <a href="/contests/onefunded/50">OneFunded</a> Ended
+    <a href="/contests/dna-funded/49/rules">DNA Funded</a> Registration ended
+    <a href="/contests/live-forex-contest-maxfx/22">Live Forex Contest MaxFX</a> Ended
+    <a href="/contests/forex-contest-may-2010-fxdd/1">May 2010</a> Ended`;
+  const listedIds = parseContestIds(listed);
+  assert.deepEqual(listedIds, [1, 22, 49, 50, 52]);
+  assert.equal(parseLiveContestId(listed, listedIds), 52);
   assert.equal(isChallengeHtml("<title>Just a moment...</title><div class=\"challenge-platform\"></div>", "Just a moment..."), true);
   assert.equal(isHardBlockHtml("<h1>Sorry, you have been blocked</h1>"), true);
   assert.equal(isChallengeHtml("<h1>Sorry, you have been blocked</h1> Just a moment challenge-platform", ""), false);
@@ -336,7 +345,7 @@ test("experience minimum follows Myfxbook's four profile values", () => {
   assert.equal(meetsExperience("1-3 years", "More than 5 years"), false);
 });
 
-test("a round checks the live contest, then forum, then systems, and skips other countries", async () => {
+test("a round finishes the live contest, then archives, then forum, then systems", async () => {
   const calls = [];
   const leads = [];
   const checked = new Set();
@@ -346,9 +355,8 @@ test("a round checks the live contest, then forum, then systems, and skips other
     stopped: () => stop,
     async request(url) {
       calls.push(url);
-      if (calls.length >= 8) stop = true;
       if (url.endsWith("/contests")) {
-        return { status: 200, text: '<a href="/contests/old-2">past</a><div>Live now <a href="/contests/now-3">current</a></div>' };
+        return { status: 200, text: '<div>Registration <a href="/contests/now-3">current</a> Join Now</div><a href="/contests/old-2">past Ended</a>' };
       }
       if (url.includes("pt=24") && url.includes("id=3")) {
         return {
@@ -373,9 +381,17 @@ test("a round checks the live contest, then forum, then systems, and skips other
         };
       }
       if (url.includes("recent-topics")) {
-        return { status: 200, text: '<tr><td><a href="/members/forumthai">f</a> 1 hour ago</td></tr>' };
+        if (url.endsWith(",1")) {
+          return { status: 200, text: '<tr><td><a href="/members/forumthai">f</a> 1 hour ago</td></tr>' };
+        }
+        return { status: 200, text: '<tr><td><a href="/members/oldforum">f</a> 40 days ago</td></tr>' };
       }
-      if (url.includes("pt=6")) return { status: 200, text: '<a href="https://www.myfxbook.com/members/systhai">s</a>' };
+      if (url.includes("pt=6")) {
+        if (/(?:^|[?&])p=1(?:&|$)/.test(url)) {
+          return { status: 200, text: '<a href="https://www.myfxbook.com/members/systhai">s</a>' };
+        }
+        return { status: 200, text: "" };
+      }
       return { status: 200, text: '<input id="totalResultsCount" value="0" />' };
     },
     async sleep() { stop = true; },
@@ -402,8 +418,10 @@ test("a round checks the live contest, then forum, then systems, and skips other
     if (url.includes("id=2")) return "historical";
     return url;
   });
-  assert.deepEqual(order.slice(0, 7), [
-    "contests", "live", "profile-thai", "forum", "profile-forum", "systems", "profile-systems"
+  assert.deepEqual(order, [
+    "contests", "live", "profile-thai", "historical",
+    "forum", "profile-forum", "forum",
+    "systems", "profile-systems", "systems"
   ]);
   assert.equal(calls.some((url) => url.includes("/members/deuser")), false);
   assert.equal(checked.has("deuser"), true);
