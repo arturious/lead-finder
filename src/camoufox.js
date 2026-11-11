@@ -96,6 +96,7 @@ function createCamoufoxClient({ command, args, profileDir, proxy, log }) {
   let seq = 0;
   const pending = new Map();
   let readyWait = null;
+  const epochWaits = new Set();
 
   function note(line) {
     if (typeof log === "function" && line) log(line);
@@ -200,9 +201,34 @@ function createCamoufoxClient({ command, args, profileDir, proxy, log }) {
     return error;
   }
 
+  function epochMoved(ticket) {
+    if (ticket !== epoch) return { promise: Promise.resolve(), drop() {} };
+    let wake;
+    const promise = new Promise((resolve) => {
+      wake = () => {
+        epochWaits.delete(wake);
+        resolve();
+      };
+      epochWaits.add(wake);
+    });
+    return {
+      promise,
+      drop() {
+        if (wake) epochWaits.delete(wake);
+      }
+    };
+  }
+
   async function fetch(url) {
     const ticket = epoch;
-    await start();
+    const starting = start();
+    starting.catch(() => {});
+    const moved = epochMoved(ticket);
+    try {
+      await Promise.race([starting, moved.promise]);
+    } finally {
+      moved.drop();
+    }
     if (ticket !== epoch) throw stoppedError();
     if (!child || !child.stdin.writable) {
       const error = new Error("camoufox is not running");
@@ -233,6 +259,7 @@ function createCamoufoxClient({ command, args, profileDir, proxy, log }) {
   function cancel() {
     epoch += 1;
     failAll(stoppedError());
+    for (const wake of [...epochWaits]) wake();
     try {
       if (child && child.stdin.writable) child.stdin.write(`${JSON.stringify({ cmd: "stop" })}\n`);
     } catch { /* the process is already gone */ }

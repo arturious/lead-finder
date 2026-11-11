@@ -180,6 +180,7 @@ function minimumOf(ctx) {
 }
 
 async function consider(ctx, item) {
+  if (ctx.stopped()) return;
   const key = item.username.toLowerCase();
   const recheck = typeof ctx.shouldRecheck === "function" && ctx.shouldRecheck(key);
   if (ctx.isChecked(key) && !recheck) {
@@ -210,6 +211,7 @@ async function consider(ctx, item) {
 
   ctx.noteProfile();
   const res = await ctx.request(profileUrl(item.username));
+  if (ctx.stopped() || !res) return;
   const profile = res.status === 200 ? parseProfile(res.text) : null;
   const location = (profile && profile.location) || item.country || "";
   const contacts = (profile && profile.contacts) || "";
@@ -228,15 +230,19 @@ async function consider(ctx, item) {
 }
 
 async function loadContestPage(ctx, contestId, page, cache) {
+  if (ctx.stopped()) return [];
   if (cache && cache.has(page)) return cache.get(page);
   const res = await ctx.request(contestPageUrl(contestId, page), { xhr: true });
+  if (ctx.stopped() || !res) return [];
   const rows = res.status === 200 ? parseContestRows(res.text) : [];
   if (cache) cache.set(page, rows);
   return rows;
 }
 
 async function locateContest(ctx, contestId, target) {
+  if (ctx.stopped()) return { start: 1, pages: 0, cache: new Map() };
   const first = await ctx.request(contestPageUrl(contestId, 1), { xhr: true });
+  if (ctx.stopped() || !first) return { start: 1, pages: 0, cache: new Map() };
   const rows1 = first.status === 200 ? parseContestRows(first.text) : [];
   const total = first.status === 200 ? parseTotal(first.text) : 0;
   const pages = total > 0 ? Math.ceil(total / 20) : (rows1.length ? 1 : 0);
@@ -245,6 +251,7 @@ async function locateContest(ctx, contestId, target) {
     pages,
     target,
     getRows: async (page) => {
+      if (ctx.stopped()) return [];
       if (page === 1) return rows1;
       return loadContestPage(ctx, contestId, page, null);
     }
@@ -291,12 +298,14 @@ async function ensureContests(ctx, state) {
   if (!state.refreshContests && state.liveId) return;
   ctx.setSource("список конкурсов");
   const res = await ctx.request(`${BASE}/contests`);
+  if (ctx.stopped() || !res) return;
   let ids = res.status === 200 ? parseContestIds(res.text) : [];
   let live = res.status === 200 ? parseLiveContestId(res.text, ids) : null;
   if (!live) {
     for (let id = 70; id >= 40 && !ctx.stopped(); id--) {
       ctx.setSource(`конкурс ${id}?`);
       const probe = await ctx.request(contestPageUrl(id, 1), { xhr: true });
+      if (ctx.stopped() || !probe) return;
       if (probe.status === 200 && parseTotal(probe.text) > 0) {
         live = id;
         break;
@@ -370,6 +379,7 @@ async function stepForum(ctx, state) {
   const page = state.forumPage;
   ctx.setSource(`форум, стр. ${page}`);
   const res = await ctx.request(`${BASE}/community/recent-topics-discussed/1,${page}`);
+  if (ctx.stopped() || !res) return;
   const items = res.status === 200 ? parseForumItems(res.text) : [];
   const fresh = items.filter((item) => {
     const age = agoDays(item.recency);
@@ -396,6 +406,7 @@ async function stepSystems(ctx, state) {
   const page = state.systemsPage;
   ctx.setSource(`системы, стр. ${page}`);
   const res = await ctx.request(systemsPageUrl(page), { xhr: true });
+  if (ctx.stopped() || !res) return;
   const rows = res.status === 200 ? parseSystemsRows(res.text) : [];
   if (!rows.length) {
     state.systemsDone = true;

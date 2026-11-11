@@ -118,17 +118,19 @@ function blockHeavy(session) {
   });
 }
 
-function waitForLoad(contents, timeoutMs) {
+function waitForLoad(contents, timeoutMs, stops) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = () => {
       if (settled) return;
       settled = true;
+      if (stops) stops.delete(finish);
       clearTimeout(timer);
       contents.removeListener("did-finish-load", onFinish);
       contents.removeListener("did-fail-load", onFail);
       resolve();
     };
+    if (stops) stops.add(finish);
     const onFinish = () => finish();
     const onFail = (_event, _code, _desc, _url, isMainFrame) => {
       if (isMainFrame === false) return;
@@ -151,6 +153,7 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
   let siteChain = Promise.resolve();
   let pageUa = "";
   let httpProxyUrl = "";
+  const loadStops = new Set();
 
   function report(update) {
     if (onProgress) onProgress(update);
@@ -227,9 +230,13 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
         if (token !== generation) return;
         win = created;
         crashed = false;
-        const pending = waitForLoad(created.webContents, 90000);
+        const pending = waitForLoad(created.webContents, 90000, loadStops);
         await created.loadURL(entryUrl).catch(() => {});
         await pending;
+        if (token !== generation) {
+          if (win === created) win = null;
+          return;
+        }
       } catch (error) {
         if (created && created !== win) discard(created);
         throw error;
@@ -245,8 +252,17 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
     return opening;
   }
 
+  function abortLoad() {
+    generation += 1;
+    for (const finish of [...loadStops]) finish();
+    const page = contents();
+    if (!page) return;
+    try { page.stop(); } catch { /* the window is already gone */ }
+  }
+
   async function close() {
     generation += 1;
+    for (const finish of [...loadStops]) finish();
     allowDestroy = true;
     const pending = opening;
     const current = win;
@@ -298,12 +314,14 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
       const finish = () => {
         if (settled) return;
         settled = true;
+        loadStops.delete(finish);
         clearTimeout(timer);
         clearTimeout(pollTimer);
         target.removeListener("did-finish-load", onFinish);
         target.removeListener("did-fail-load", onFail);
         resolve();
       };
+      loadStops.add(finish);
       const onFinish = () => finish();
       const onFail = (_event, _code, _desc, _url, isMainFrame) => {
         if (isMainFrame === false) return;
@@ -455,6 +473,7 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
   return {
     open,
     close,
+    abortLoad,
     fetch,
     showForChallenge,
     clearUrl,

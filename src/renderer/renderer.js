@@ -21,7 +21,8 @@ const state = {
 };
 
 function setStatus(status) {
-  state.running = Boolean(status.running) || ["starting", "download", "running", "challenge", "blocked", "cooldown", "stopping"].includes(status.phase);
+  const activePhase = ["starting", "download", "running", "challenge", "blocked", "cooldown", "stopping"].includes(status.phase);
+  state.running = status.running === false ? false : Boolean(status.running) || activePhase;
   $("m-requests").textContent = String(status.requests || 0);
   $("m-profiles").textContent = String(status.profiles || 0);
   $("m-leads").textContent = String(state.running ? (status.leads || 0) : state.leads.size);
