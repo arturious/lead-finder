@@ -7,11 +7,17 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="top">
-    <div class="exports">
-      <button type="button" id="export-csv" class="ghost">CSV</button>
-      <button type="button" id="export-xlsx" class="ghost">Excel</button>
-      <button type="button" id="clear-leads" class="ghost">Очистить лидов</button>
+  <header class="top" id="status" aria-live="polite">
+    <p id="status-line">Выберите страну и нажмите «Начать поиск».</p>
+    <div class="top-actions">
+      <button type="button" id="start" class="start" disabled>Начать поиск</button>
+      <button type="button" id="reset-memory" class="ghost">Сбросить память</button>
+      <button type="button" id="show-browser" class="ghost">Показать браузер</button>
+      <div class="exports">
+        <button type="button" id="export-csv" class="ghost">CSV</button>
+        <button type="button" id="export-xlsx" class="ghost">Excel</button>
+        <button type="button" id="clear-leads" class="ghost">Очистить лидов</button>
+      </div>
     </div>
   </header>
 
@@ -37,30 +43,19 @@
         <option value="More than 5 years">Более 5 лет</option>
       </select>
     </label>
-    <button type="button" id="start" class="start" disabled>Начать поиск</button>
-    <button type="button" id="reset-memory" class="ghost">Сбросить память</button>
-  </section>
-
-  <section class="proxy">
     <label class="field proxy-field">
-      <span>⚙ Прокси</span>
+      <span>Прокси</span>
       <input id="proxy-input" type="text" placeholder="socks5://host:port" autocomplete="off" spellcheck="false" />
     </label>
     <button type="button" id="proxy-check" class="ghost">Проверить</button>
     <p id="proxy-note" class="note"></p>
   </section>
 
-  <section class="status" id="status" aria-live="polite">
-    <div class="metrics">
-      <span>Запросы <strong id="m-requests">0</strong></span>
-      <span>Профили <strong id="m-profiles">0</strong></span>
-      <span>Лиды <strong id="m-leads">0</strong></span>
-      <span>Источник <strong id="m-source">—</strong></span>
-    </div>
-    <div class="status-row">
-      <p id="status-line">Выберите страну и нажмите «Начать поиск».</p>
-      <button type="button" id="show-browser" class="ghost">Показать браузер</button>
-    </div>
+  <section class="metrics" aria-label="Счётчики">
+    <span>Запросы <strong id="m-requests">0</strong></span>
+    <span>Профили <strong id="m-profiles">0</strong></span>
+    <span>Лиды <strong id="m-leads">0</strong></span>
+    <span>Источник <strong id="m-source">—</strong></span>
   </section>
 
   <div class="table-wrap">
