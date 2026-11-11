@@ -5,7 +5,16 @@ const { countryMatches } = require("./parse");
 const RECHECK_MS = 3 * 24 * 60 * 60 * 1000;
 
 function emptyData() {
-  return { checked: {}, leads: [], cursors: {}, lastCountry: "", lastSite: "myfxbook", proxy: "", minExperience: "" };
+  return {
+    checked: {},
+    leads: [],
+    cursors: {},
+    lastCountry: "",
+    lastSite: "myfxbook",
+    proxy: "",
+    minExperience: "",
+    httpEngine: "window"
+  };
 }
 
 function createStore(file) {
@@ -133,7 +142,8 @@ function load(file) {
       ...parsed,
       checked: parsed.checked || {},
       leads: Array.isArray(parsed.leads) ? parsed.leads : [],
-      cursors: parsed.cursors || {}
+      cursors: parsed.cursors || {},
+      httpEngine: parsed.httpEngine === "impit" ? "impit" : "window"
     };
   } catch {
     return emptyData();

@@ -30,6 +30,16 @@ function isPressureStatus(status) {
   return status === 429 || status === 503;
 }
 
+// A Cloudflare challenge is solved in the window. It must not change the gap,
+// the slot count, or the 429 streak.
+function paceKind(result) {
+  if (result && result.challenge) return "clear";
+  if (result && (result.blocked || result.timeout)) {
+    return isPressureStatus(result.status) ? "limit" : "soft";
+  }
+  return "ok";
+}
+
 function retryAfterMs(value, now = Date.now()) {
   if (value == null || value === "") return 0;
   const seconds = Number(value);
@@ -77,6 +87,7 @@ module.exports = {
   paceOnLimit,
   paceOnSoft,
   isPressureStatus,
+  paceKind,
   retryAfterMs,
   backoffMinutes,
   cooldownMs,

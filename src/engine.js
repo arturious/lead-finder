@@ -1,7 +1,7 @@
 const { createBrowser, shouldReuseBrowser } = require("./browser");
 const { createHttpClient, freshHttpState, httpFallbackState } = require("./http");
 const { getSource } = require("./sources");
-const { createPace, paceDelayMs, paceOnSuccess, paceOnLimit, paceOnSoft, isPressureStatus, backoffMinutes } = require("./pacing");
+const { createPace, paceDelayMs, paceOnSuccess, paceOnLimit, paceOnSoft, paceKind, backoffMinutes } = require("./pacing");
 const { assertProxyReachable } = require("./proxy");
 
 function createEngine({ store, profileDir, emit }) {
@@ -14,6 +14,8 @@ function createEngine({ store, profileDir, emit }) {
   let pace = createPace();
   let httpState = freshHttpState();
   let httpClient = null;
+  let settleUntil = 0;
+  const CLEAR_SETTLE_MS = 1500;
   let backoffTask = null;
   let challengeTask = null;
   const wakes = new Set();
@@ -93,12 +95,25 @@ function createEngine({ store, profileDir, emit }) {
     return backoffTask;
   }
 
+  function engineName() {
+    return httpState.mode === "http" ? "impit" : "window";
+  }
+
+  function logLine(message) {
+    console.log(`[lead-finder] ${message}`);
+  }
+
   function clearChallenge(url) {
     if (!challengeTask) {
+      const started = Date.now();
+      logLine(`cf challenge start engine=${engineName()} url=${url}`);
       const run = browser.clearUrl
         ? browser.clearUrl(url, () => stopRequested)
         : browser.showForChallenge(() => stopRequested);
-      challengeTask = Promise.resolve(run).finally(() => {
+      challengeTask = Promise.resolve(run).then((ok) => {
+        logLine(`cf challenge clear engine=${engineName()} url=${url} ms=${Date.now() - started} ok=${Boolean(ok)}`);
+        return ok;
+      }).finally(() => {
         challengeTask = null;
       });
     }
@@ -143,6 +158,8 @@ function createEngine({ store, profileDir, emit }) {
 
   async function request(url, options) {
     while (!stopRequested) {
+      const settleLeft = settleUntil - Date.now();
+      if (settleLeft > 0) await sleep(settleLeft);
       await sleep(paceDelayMs(pace));
       if (stopRequested) break;
       if (!browser || !browser.isOpen()) {
@@ -175,7 +192,11 @@ function createEngine({ store, profileDir, emit }) {
         }
         continue;
       }
-      if (result.challenge) {
+      if (result.status === 403 || result.status === 429) {
+        logLine(`http ${result.status} challenge=${Boolean(result.challenge)} engine=${engineName()} url=${url}`);
+      }
+      const kind = paceKind(result);
+      if (kind === "clear") {
         const next = httpFallbackState(httpState, "challenge");
         const switched = next.switched;
         httpState = next;
@@ -188,13 +209,14 @@ function createEngine({ store, profileDir, emit }) {
         if (stopRequested) break;
         if (!cleared) {
           await backoff("Проверка Cloudflare не пройдена");
-        } else if (httpState.mode === "http") {
-          httpState = httpFallbackState(httpState, "cleared");
+        } else {
+          settleUntil = Date.now() + CLEAR_SETTLE_MS;
+          if (httpState.mode === "http") httpState = httpFallbackState(httpState, "cleared");
         }
         continue;
       }
-      if (result.blocked || result.timeout) {
-        if (isPressureStatus(result.status)) {
+      if (kind === "limit" || kind === "soft") {
+        if (kind === "limit") {
           const decision = paceOnLimit(pace, { status: result.status, retryAfter: result.retryAfter });
           if (decision.longBackoff) {
             await backoff(`Ответ ${result.status}`);
@@ -367,7 +389,10 @@ function createEngine({ store, profileDir, emit }) {
     stats.backoffStep = 0;
     pace = createPace();
     httpState = freshHttpState();
+    if (store.data.httpEngine !== "impit") httpState.mode = "window";
     httpClient = null;
+    settleUntil = 0;
+    logLine(`engine ${engineName()}`);
     stats.country = country;
     stats.siteId = siteId;
     stats.phase = "running";

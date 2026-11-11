@@ -1,6 +1,6 @@
 const { isChallengeHtml, isHardBlockHtml } = require("./parse");
 const { prepareChromeProxy } = require("./proxy");
-const { parseSetCookie, proxyUrlForImpit } = require("./http");
+const { parseSetCookie, proxyUrlForImpit, isCloudflareChallenge } = require("./http");
 
 const BLOCKED_TYPES = new Set(["image", "media", "font"]);
 const CHALLENGE_RELOAD_MS = 3000;
@@ -217,6 +217,7 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
           crashed = true;
         });
         created.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+        created.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
         const ua = chromeUserAgent(created.webContents.getUserAgent(), app.getName());
         pageUa = ua;
         created.webContents.setUserAgent(ua);
@@ -356,7 +357,12 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
       const headers = { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" };
       if (useXhr) headers["X-Requested-With"] = "XMLHttpRequest";
       return fetch(targetUrl, { credentials: "include", redirect: "follow", signal: ctrl.signal, headers })
-        .then(async (res) => ({ status: res.status, text: await res.text(), retryAfter: res.headers.get("retry-after") || "" }))
+        .then(async (res) => ({
+          status: res.status,
+          text: await res.text(),
+          retryAfter: res.headers.get("retry-after") || "",
+          cfMitigated: res.headers.get("cf-mitigated") || ""
+        }))
         .catch((error) => ({ error: String(error && error.name || error), message: String(error && error.message || error) }))
         .finally(() => clearTimeout(timer));
     })()`;
@@ -371,8 +377,11 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
 
     if (!result || result.error) return { timeout: true, error: result && result.message };
     const retryAfter = result.retryAfter || "";
-    if (isHardBlockHtml(result.text)) return { blocked: true, status: result.status, text: result.text, retryAfter };
-    if (isChallengeHtml(result.text)) return { challenge: true, status: result.status, text: result.text, retryAfter };
+    const body = { status: result.status, text: result.text, retryAfter };
+    if (isHardBlockHtml(result.text)) return { blocked: true, ...body };
+    if (isCloudflareChallenge({ ...body, headers: { "cf-mitigated": result.cfMitigated || "" } })) {
+      return { challenge: true, ...body };
+    }
     if (result.status === 403 || result.status === 429 || result.status === 408 || result.status >= 500) {
       return { blocked: true, status: result.status, text: result.text, retryAfter };
     }
