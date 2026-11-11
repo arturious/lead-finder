@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeTheme } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { COUNTRIES } = require("./countries");
@@ -25,6 +25,10 @@ function send(channel, payload) {
   mainWindow.webContents.send(channel, payload);
 }
 
+function windowBackground() {
+  return nativeTheme.shouldUseDarkColors ? "#09090b" : "#ffffff";
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1180,
@@ -32,10 +36,7 @@ function createWindow() {
     minWidth: 920,
     minHeight: 640,
     title: "Lead Finder",
-    transparent: true,
-    backgroundColor: "#00000000",
-    vibrancy: "under-window",
-    visualEffectState: "active",
+    backgroundColor: windowBackground(),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 18 },
     icon: path.join(__dirname, "icon.png"),
@@ -166,6 +167,9 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+  nativeTheme.on("updated", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setBackgroundColor(windowBackground());
+  });
   engine.warm();
 });
 

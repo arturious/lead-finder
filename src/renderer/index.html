@@ -8,7 +8,7 @@
 </head>
 <body>
   <header class="stage">
-    <section class="glass pill controls">
+    <section class="controls">
       <label class="field">
         <span>Сайт</span>
         <select id="site"></select>
@@ -36,15 +36,15 @@
       </label>
     </section>
 
-    <button type="button" id="start" class="glass play" disabled>Начать поиск</button>
+    <button type="button" id="start" class="play" disabled>Начать поиск</button>
 
     <div class="actions">
-      <button type="button" id="proxy-check" class="glass mini">Проверить</button>
-      <button type="button" id="reset-memory" class="glass mini">Сбросить память</button>
-      <button type="button" id="show-browser" class="glass mini">Показать браузер</button>
-      <button type="button" id="export-csv" class="glass mini">CSV</button>
-      <button type="button" id="export-xlsx" class="glass mini">Excel</button>
-      <button type="button" id="clear-leads" class="glass mini">Очистить лидов</button>
+      <button type="button" id="proxy-check" class="btn">Проверить</button>
+      <button type="button" id="reset-memory" class="btn">Сбросить память</button>
+      <button type="button" id="show-browser" class="btn">Показать браузер</button>
+      <button type="button" id="export-csv" class="btn">CSV</button>
+      <button type="button" id="export-xlsx" class="btn">Excel</button>
+      <button type="button" id="clear-leads" class="btn">Очистить лидов</button>
     </div>
   </header>
 
@@ -52,14 +52,14 @@
     <p id="status-line">Выберите страну и нажмите «Начать поиск».</p>
     <p id="proxy-note" class="note"></p>
     <div class="chips">
-      <span class="glass chip">Запросы <strong id="m-requests">0</strong></span>
-      <span class="glass chip">Профили <strong id="m-profiles">0</strong></span>
-      <span class="glass chip">Лиды <strong id="m-leads">0</strong></span>
-      <span class="glass chip">Источник <strong id="m-source">—</strong></span>
+      <span class="badge">Запросы <strong id="m-requests">0</strong></span>
+      <span class="badge">Профили <strong id="m-profiles">0</strong></span>
+      <span class="badge">Лиды <strong id="m-leads">0</strong></span>
+      <span class="badge">Источник <strong id="m-source">—</strong></span>
     </div>
   </section>
 
-  <main class="glass card">
+  <main class="card">
     <div class="table-wrap">
       <table>
         <thead>
