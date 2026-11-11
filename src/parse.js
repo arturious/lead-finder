@@ -251,12 +251,37 @@ function agoDays(txt, now = Date.now()) {
   return (now - t) / 86400000;
 }
 
+function challengeTitle(html, title) {
+  const given = String(title || "").trim();
+  if (given) return given;
+  const match = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match ? match[1].replace(/\s+/g, " ").trim() : "";
+}
+
+function visibleText(html) {
+  return String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// A background /cdn-cgi/challenge-platform script is on normal Myfxbook pages.
+// Only a real interstitial counts: the challenge title, or a challenge widget
+// on a page that has no real content.
 function isChallengeHtml(html, title) {
-  const blob = `${title || ""}\n${html || ""}`;
-  if (/you have been blocked/i.test(blob)) return false;
-  if (/just a moment/i.test(blob) && /cloudflare|challenge-platform|cf-challenge|turnstile/i.test(blob)) return true;
-  if (/just a moment/i.test(title || "")) return true;
-  return /challenge-platform|cf-turnstile|cf-challenge-running|Attention Required! \| Cloudflare/i.test(html || "");
+  const text = html || "";
+  if (/you have been blocked/i.test(`${title || ""}\n${text}`)) return false;
+  const pageTitle = challengeTitle(text, title);
+  if (/just a moment/i.test(pageTitle)) return true;
+  if (/Attention Required!\s*\|\s*Cloudflare/i.test(pageTitle)) return true;
+  if (visibleText(text).length >= 80) return false;
+  if (/id=["']challenge-form["']/i.test(text)) return true;
+  if (/id=["']challenge-running["']/i.test(text)) return true;
+  if (/class=["'][^"']*\bcf-turnstile\b/i.test(text)) return true;
+  if (/cf-challenge-running/i.test(text)) return true;
+  return false;
 }
 
 function isHardBlockHtml(html) {

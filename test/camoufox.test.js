@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("path");
 const os = require("os");
+const { spawnSync } = require("child_process");
 const {
   normalizeHttpEngine,
   engineMode,
@@ -46,6 +47,52 @@ test("sidecar lines become the same fetch result the engine already uses", () =>
   assert.equal(limited.blocked, true);
   const broken = toFetchResult(parseSidecarLine('{"id":4,"status":0,"html":"","ms":5,"error":"timeout"}'));
   assert.equal(broken.timeout, true);
+});
+
+test("a normal page that only links challenge-platform is not an interstitial", () => {
+  const html = `<html><head><title>Forex Contests</title><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></head><body><h1>Live contests</h1><p>${"trader ".repeat(20)}</p></body></html>`;
+  const py = spawnSync("python3", ["-c", `
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import camoufox_server as s
+html, title, mitigated = json.loads(sys.stdin.read())
+print("1" if s.is_challenge(html, title, mitigated) else "0")
+print("1" if s.is_challenge("<html><body><div id='challenge-running'></div></body></html>", "") else "0")
+print("1" if s.is_challenge("<title>Just a moment...</title><body></body>", "") else "0")
+print("1" if s.is_challenge("<html><body>x</body></html>", "", "challenge") else "0")
+`, path.join(__dirname, "..", "sidecar")], {
+    input: JSON.stringify([html, "Forex Contests", ""]),
+    encoding: "utf8"
+  });
+  assert.equal(py.status, 0, py.stderr);
+  assert.equal(py.stdout, "0\n1\n1\n1\n");
+});
+
+test("stop rejects a hung sidecar request within a second and keeps the process", async () => {
+  const client = createCamoufoxClient({
+    command: process.execPath,
+    args: [path.join(__dirname, "fixtures", "fake-sidecar.js")],
+    profileDir: os.tmpdir(),
+    proxy: "",
+    log() {}
+  });
+  try {
+    await client.start();
+    const started = Date.now();
+    let caught = null;
+    const hung = client.fetch("https://www.myfxbook.com/hang").catch((error) => {
+      caught = error;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    client.cancel();
+    await hung;
+    assert.ok(Date.now() - started < 1000);
+    assert.equal(caught && caught.message, "stopped");
+    const next = await client.fetch("https://www.myfxbook.com/members/a");
+    assert.equal(next.status, 200);
+  } finally {
+    await client.close();
+  }
 });
 
 test("the client pairs responses by id and restarts when the proxy changes", async () => {

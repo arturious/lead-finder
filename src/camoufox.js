@@ -83,6 +83,7 @@ function createCamoufoxClient({ command, args, profileDir, proxy, log }) {
   let child = null;
   let starting = null;
   let opened = false;
+  let epoch = 0;
   let proxyValue = String(proxy || "");
   let buf = "";
   let seq = 0;
@@ -186,8 +187,16 @@ function createCamoufoxClient({ command, args, profileDir, proxy, log }) {
     return starting;
   }
 
+  function stoppedError() {
+    const error = new Error("stopped");
+    error.code = "STOP";
+    return error;
+  }
+
   async function fetch(url) {
+    const ticket = epoch;
     await start();
+    if (ticket !== epoch) throw stoppedError();
     if (!child || !child.stdin.writable) {
       const error = new Error("camoufox is not running");
       error.code = "CAMOUFOX_EXIT";
@@ -212,6 +221,14 @@ function createCamoufoxClient({ command, args, profileDir, proxy, log }) {
       child.stdin.write(`${JSON.stringify({ id, url })}\n`);
     });
     return toFetchResult(msg);
+  }
+
+  function cancel() {
+    epoch += 1;
+    failAll(stoppedError());
+    try {
+      if (child && child.stdin.writable) child.stdin.write(`${JSON.stringify({ cmd: "stop" })}\n`);
+    } catch { /* the process is already gone */ }
   }
 
   async function useProxy(next) {
@@ -240,12 +257,12 @@ function createCamoufoxClient({ command, args, profileDir, proxy, log }) {
         resolve();
       });
       try {
-        if (current.stdin.writable) current.stdin.write(`${JSON.stringify({ cmd: "stop" })}\n`);
+        if (current.stdin.writable) current.stdin.write(`${JSON.stringify({ cmd: "quit" })}\n`);
       } catch { /* the process is already gone */ }
     });
   }
 
-  return { start, fetch, useProxy, close, locateRoot: null };
+  return { start, fetch, useProxy, cancel, close };
 }
 
 module.exports = {

@@ -61,6 +61,7 @@ function createEngine({ store, profileDir, emit }) {
   function stop() {
     stopRequested = true;
     for (const wake of [...wakes]) wake();
+    if (camoufox) camoufox.cancel();
     if (stats.phase !== "error") {
       stats.phase = "stopping";
       stats.message = "Останавливаю…";
@@ -200,6 +201,7 @@ function createEngine({ store, profileDir, emit }) {
         }
       } catch (error) {
         const code = error && error.code;
+        if (code === "STOP" || stopRequested) throw error;
         if (code === "CAMOUFOX_CLOSED" || code === "CAMOUFOX_TIMEOUT") {
           return { timeout: true, error: error.message || String(error) };
         }

@@ -162,6 +162,10 @@ test("contest index and cloudflare pages", () => {
   assert.equal(isChallengeHtml("<title>Just a moment...</title><div class=\"challenge-platform\"></div>", "Just a moment..."), true);
   assert.equal(isHardBlockHtml("<h1>Sorry, you have been blocked</h1>"), true);
   assert.equal(isChallengeHtml("<h1>Sorry, you have been blocked</h1> Just a moment challenge-platform", ""), false);
+  const contests = `<html><head><title>Forex Contests</title><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></head><body><h1>Live contests</h1><p>${"trader ".repeat(20)}</p></body></html>`;
+  assert.equal(isChallengeHtml(contests, "Forex Contests"), false);
+  assert.equal(isChallengeHtml("<html><body><div id=\"challenge-running\"></div></body></html>", ""), true);
+  assert.equal(isChallengeHtml("<title>Attention Required! | Cloudflare</title><body></body>", ""), true);
 });
 
 test("pacing speeds up after a streak and only parks on repeated 429s", () => {
