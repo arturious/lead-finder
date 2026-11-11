@@ -4,6 +4,12 @@ const { spawn } = require("child_process");
 const { isChallengeHtml, isHardBlockHtml } = require("./parse");
 const { prepareChromeProxy } = require("./proxy");
 
+const BLOCKED_TYPES = new Set(["image", "media", "font"]);
+
+function shouldBlockResource(type) {
+  return BLOCKED_TYPES.has(type);
+}
+
 // Headless by default (Chrome's new headless, same binary and profile).
 // A Cloudflare page is reloaded up to three times while still headless.
 // Only then is a headed window opened, minimized until the click is needed.
@@ -186,6 +192,7 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
   let relay = null;
   let headed = false;
   let browserKind = "chrome";
+  let siteChain = Promise.resolve();
 
   function report(update) {
     if (onProgress) onProgress(update);
@@ -269,6 +276,7 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
         page = context.pages()[0] || await context.newPage();
         context.setDefaultTimeout(70000);
         page.setDefaultTimeout(70000);
+        await blockHeavy(context);
         if (headed) await placeWindow(page, false);
       } finally {
         if (!context && relay) {
@@ -308,6 +316,19 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
     return page;
   }
 
+  function onSite(task) {
+    const run = siteChain.then(task, task);
+    siteChain = run.then(() => {}, () => {});
+    return run;
+  }
+
+  async function blockHeavy(ctx) {
+    await ctx.route("**/*", (route) => {
+      if (shouldBlockResource(route.request().resourceType())) return route.abort();
+      return route.continue();
+    }).catch(() => {});
+  }
+
   async function gotoEntry(target) {
     try {
       await target.goto(entryUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
@@ -327,14 +348,18 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
   async function fetch(url, { xhr = false } = {}) {
     const target = await ensurePage();
     if (!target) return { timeout: true };
-    let current = "";
-    try { current = target.url(); } catch { current = ""; }
-    const title = await target.title().catch(() => "");
-    if (!current.startsWith("https://www.myfxbook.com") || /just a moment/i.test(title)) {
-      const ok = await gotoEntry(target);
-      if (!ok) return { timeout: true };
-      if (await pageLooksChallenged(target)) return { challenge: true };
-    }
+    const prelude = await onSite(async () => {
+      let current = "";
+      try { current = target.url(); } catch { current = ""; }
+      const title = await target.title().catch(() => "");
+      if (!current.startsWith("https://www.myfxbook.com") || /just a moment/i.test(title)) {
+        const ok = await gotoEntry(target);
+        if (!ok) return { timeout: true };
+        if (await pageLooksChallenged(target)) return { challenge: true };
+      }
+      return null;
+    });
+    if (prelude) return prelude;
 
     let result;
     try {
@@ -410,6 +435,7 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
     page = context.pages()[0] || await context.newPage();
     context.setDefaultTimeout(70000);
     page.setDefaultTimeout(70000);
+    await blockHeavy(context);
     await placeWindow(page, false);
     return true;
   }
@@ -466,6 +492,7 @@ module.exports = {
   createBrowser,
   parseInstallLine,
   isMissingChrome,
+  shouldBlockResource,
   challengeRetryDelayMs,
   challengeAttemptMessage,
   retryChallengeQuietly,

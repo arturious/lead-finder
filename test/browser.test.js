@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const {
   parseInstallLine,
   isMissingChrome,
+  shouldBlockResource,
   challengeRetryDelayMs,
   challengeAttemptMessage,
   retryChallengeQuietly,
@@ -23,6 +24,17 @@ test("chromium download progress is a status update", () => {
   const done = parseInstallLine("Chromium 131.0.6778.33 (playwright build v1148) downloaded to /tmp/browsers/chromium");
   assert.equal(done.progress, 100);
   assert.equal(parseInstallLine(""), null);
+});
+
+test("images, media and fonts are blocked, scripts and styles are not", () => {
+  assert.equal(shouldBlockResource("image"), true);
+  assert.equal(shouldBlockResource("media"), true);
+  assert.equal(shouldBlockResource("font"), true);
+  assert.equal(shouldBlockResource("script"), false);
+  assert.equal(shouldBlockResource("stylesheet"), false);
+  assert.equal(shouldBlockResource("xhr"), false);
+  assert.equal(shouldBlockResource("fetch"), false);
+  assert.equal(shouldBlockResource("document"), false);
 });
 
 test("only a missing system Chrome falls back to Chromium", () => {

@@ -15,9 +15,9 @@ const {
   isHardBlockHtml,
   decodeCfEmail
 } = require("../src/parse");
-const { contestPageUrl, systemsPageUrl, SYSTEMS_DAYS, run } = require("../src/sources/myfxbook");
+const { contestPageUrl, systemsPageUrl, SYSTEMS_DAYS, run, eachProfile } = require("../src/sources/myfxbook");
 const { leadsToCsv, leadsToXlsx } = require("../src/export");
-const { politeDelayMs, backoffMinutes, cooldownMs } = require("../src/pacing");
+const { politeDelayMs, backoffMinutes, cooldownMs, profileSlotsAfter } = require("../src/pacing");
 const { createStore } = require("../src/store");
 const fs = require("fs");
 const os = require("os");
@@ -146,8 +146,12 @@ test("contest index and cloudflare pages", () => {
 });
 
 test("pacing stays slow and backs off in minutes", () => {
-  assert.equal(politeDelayMs(() => 0), 2000);
-  assert.equal(politeDelayMs(() => 0.9995), 3000);
+  assert.equal(politeDelayMs(() => 0), 800);
+  assert.equal(politeDelayMs(() => 0.9995), 1500);
+  assert.equal(profileSlotsAfter(2, 403), 1);
+  assert.equal(profileSlotsAfter(2, 429), 1);
+  assert.equal(profileSlotsAfter(2, 500), 2);
+  assert.equal(profileSlotsAfter(1, 200), 1);
   assert.equal(backoffMinutes(0), 1);
   assert.equal(backoffMinutes(1), 2);
   assert.equal(backoffMinutes(4), 16);
@@ -293,4 +297,29 @@ test("a round checks the live contest, then forum, then systems, and skips other
   assert.equal(thai.country, "Thailand");
   assert.ok(leads.some((lead) => lead.username === "forumthai" && /пост/.test(lead.liveness)));
   assert.ok(leads.some((lead) => lead.username === "systhai" && /сделка/.test(lead.liveness)));
+});
+
+test("profile fetches run two at a time until the slot count drops", async () => {
+  let slots = 2;
+  let active = 0;
+  let maxOpen = 0;
+  let startedAfterDrop = 0;
+  let maxAfterDrop = 0;
+  const ctx = { stopped: () => false, profileSlots: () => slots };
+  await eachProfile(ctx, [1, 2, 3, 4], async (n) => {
+    const dropped = slots === 1;
+    active += 1;
+    if (dropped) {
+      startedAfterDrop += 1;
+      maxAfterDrop = Math.max(maxAfterDrop, active);
+    } else {
+      maxOpen = Math.max(maxOpen, active);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    if (n === 1) slots = 1;
+    active -= 1;
+  });
+  assert.equal(maxOpen, 2);
+  assert.ok(startedAfterDrop >= 2);
+  assert.equal(maxAfterDrop, 1);
 });

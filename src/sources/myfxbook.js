@@ -122,6 +122,58 @@ function leadFrom(username, country, source, kind, recency, online, profile, sta
   };
 }
 
+function slotsNow(ctx) {
+  if (typeof ctx.profileSlots !== "function") return 2;
+  const n = Number(ctx.profileSlots());
+  return n >= 1 ? n : 1;
+}
+
+// Up to two profile fetches at once. The width is read again after each
+// finish, so a 403/429 that drops the engine to one slot sticks.
+function eachProfile(ctx, items, fn) {
+  const list = items || [];
+  let next = 0;
+  let active = 0;
+  let error = null;
+  let settled = false;
+  return new Promise((resolve, reject) => {
+    const settle = () => {
+      if (settled || active > 0) return;
+      if (!error && !ctx.stopped() && next < list.length) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve();
+    };
+    const pump = () => {
+      if (settled || error) {
+        settle();
+        return;
+      }
+      if (ctx.stopped()) {
+        settle();
+        return;
+      }
+      while (active < slotsNow(ctx) && next < list.length) {
+        const item = list[next++];
+        active += 1;
+        Promise.resolve()
+          .then(() => fn(item))
+          .then(() => {
+            active -= 1;
+            if (error || ctx.stopped() || next >= list.length) settle();
+            else pump();
+          }, (err) => {
+            active -= 1;
+            if (!error) error = err;
+            settle();
+          });
+      }
+      settle();
+    };
+    pump();
+  });
+}
+
 async function consider(ctx, item) {
   const key = item.username.toLowerCase();
   if (ctx.isChecked(key)) {
@@ -201,18 +253,16 @@ async function readContestSlice(ctx, contestId, cursor, sourceLabel) {
     }
     ctx.setSource(`${sourceLabel}, стр. ${page}`);
     const rows = await loadContestPage(ctx, contestId, page, cache);
-    for (const row of rows) {
-      if (ctx.stopped()) return false;
-      await consider(ctx, {
-        username: row.username,
-        country: row.country,
-        source: `contest:${contestId}`,
-        kind: "contest",
-        recency: row.online ? "online" : "",
-        online: row.online,
-        stats: row
-      });
-    }
+    await eachProfile(ctx, rows, (row) => consider(ctx, {
+      username: row.username,
+      country: row.country,
+      source: `contest:${contestId}`,
+      kind: "contest",
+      recency: row.online ? "online" : "",
+      online: row.online,
+      stats: row
+    }));
+    if (ctx.stopped()) return false;
     const last = rows.length ? String(rows[rows.length - 1].country || "").toLowerCase() : "";
     const target = ctx.country.toLowerCase();
     cursor.next = page + 1;
@@ -306,20 +356,20 @@ async function stepForum(ctx, state) {
   ctx.setSource(`форум, стр. ${page}`);
   const res = await ctx.request(`${BASE}/community/recent-topics-discussed/1,${page}`);
   const items = res.status === 200 ? parseForumItems(res.text) : [];
-  for (const item of items) {
-    if (ctx.stopped()) return;
+  const fresh = items.filter((item) => {
     const age = agoDays(item.recency);
-    if (age != null && age > FORUM_MAX_DAYS) continue;
-    await consider(ctx, {
-      username: item.username,
-      country: null,
-      source: "forum",
-      kind: "forum",
-      recency: item.recency,
-      online: false,
-      stats: null
-    });
-  }
+    return !(age != null && age > FORUM_MAX_DAYS);
+  });
+  await eachProfile(ctx, fresh, (item) => consider(ctx, {
+    username: item.username,
+    country: null,
+    source: "forum",
+    kind: "forum",
+    recency: item.recency,
+    online: false,
+    stats: null
+  }));
+  if (ctx.stopped()) return;
   const lastAge = items.length ? agoDays(items[items.length - 1].recency) : null;
   if (!items.length || (lastAge != null && lastAge > FORUM_MAX_DAYS)) state.forumDone = true;
   else state.forumPage = page + 1;
@@ -335,18 +385,16 @@ async function stepSystems(ctx, state) {
     state.systemsDone = true;
     return;
   }
-  for (const username of users) {
-    if (ctx.stopped()) return;
-    await consider(ctx, {
-      username,
-      country: null,
-      source: "systems",
-      kind: "systems",
-      recency: `traded<${SYSTEMS_DAYS}d`,
-      online: false,
-      stats: null
-    });
-  }
+  await eachProfile(ctx, users, (username) => consider(ctx, {
+    username,
+    country: null,
+    source: "systems",
+    kind: "systems",
+    recency: `traded<${SYSTEMS_DAYS}d`,
+    online: false,
+    stats: null
+  }));
+  if (ctx.stopped()) return;
   state.systemsPage = page + 1;
 }
 
@@ -453,6 +501,7 @@ module.exports = {
   label: "Myfxbook",
   entryUrl: `${BASE}/contests`,
   run,
+  eachProfile,
   contestPageUrl,
   systemsPageUrl,
   findCountryStart,

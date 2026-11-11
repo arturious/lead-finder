@@ -1,13 +1,16 @@
 const { createBrowser } = require("./browser");
 const { getSource } = require("./sources");
-const { politeDelayMs, backoffMinutes } = require("./pacing");
+const { politeDelayMs, backoffMinutes, profileSlotsAfter } = require("./pacing");
 const { assertProxyReachable } = require("./proxy");
 
 function createEngine({ store, profileDir, emit }) {
   let stopRequested = false;
   let running = false;
-  let wake = null;
   let browser = null;
+  let profileSlots = 2;
+  let backoffTask = null;
+  let challengeTask = null;
+  const wakes = new Set();
   const stats = {
     running: false,
     phase: "idle",
@@ -33,21 +36,19 @@ function createEngine({ store, profileDir, emit }) {
   function sleep(ms) {
     if (stopRequested || ms <= 0) return Promise.resolve();
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        wake = null;
-        resolve();
-      }, ms);
-      wake = () => {
+      const done = () => {
         clearTimeout(timer);
-        wake = null;
+        wakes.delete(done);
         resolve();
       };
+      const timer = setTimeout(done, ms);
+      wakes.add(done);
     });
   }
 
   function stop() {
     stopRequested = true;
-    if (wake) wake();
+    for (const wake of [...wakes]) wake();
     if (stats.phase !== "error") {
       stats.phase = "stopping";
       stats.message = "Останавливаю…";
@@ -63,21 +64,36 @@ function createEngine({ store, profileDir, emit }) {
     emitStatus();
   }
 
-  async function backoff(reason) {
-    const minutes = backoffMinutes(stats.backoffStep || 0);
-    stats.backoffStep = Math.min((stats.backoffStep || 0) + 1, 8);
-    stats.blocked = true;
-    stats.phase = "blocked";
-    const end = Date.now() + minutes * 60 * 1000;
-    while (!stopRequested && Date.now() < end) {
-      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
-      const m = Math.floor(left / 60);
-      const s = String(left % 60).padStart(2, "0");
-      stats.message = `${reason}. Повтор через ${m}:${s}`;
-      emitStatus();
-      await sleep(Math.min(1000, Math.max(0, end - Date.now())));
+  function backoff(reason) {
+    if (backoffTask) return backoffTask;
+    backoffTask = (async () => {
+      const minutes = backoffMinutes(stats.backoffStep || 0);
+      stats.backoffStep = Math.min((stats.backoffStep || 0) + 1, 8);
+      stats.blocked = true;
+      stats.phase = "blocked";
+      const end = Date.now() + minutes * 60 * 1000;
+      while (!stopRequested && Date.now() < end) {
+        const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+        const m = Math.floor(left / 60);
+        const s = String(left % 60).padStart(2, "0");
+        stats.message = `${reason}. Повтор через ${m}:${s}`;
+        emitStatus();
+        await sleep(Math.min(1000, Math.max(0, end - Date.now())));
+      }
+      stats.blocked = false;
+    })().finally(() => {
+      backoffTask = null;
+    });
+    return backoffTask;
+  }
+
+  function clearChallenge() {
+    if (!challengeTask) {
+      challengeTask = browser.showForChallenge(() => stopRequested).finally(() => {
+        challengeTask = null;
+      });
     }
-    stats.blocked = false;
+    return challengeTask;
   }
 
   async function request(url, options) {
@@ -99,7 +115,7 @@ function createEngine({ store, profileDir, emit }) {
         stats.phase = "challenge";
         stats.blocked = true;
         emitStatus();
-        const cleared = await browser.showForChallenge(() => stopRequested);
+        const cleared = await clearChallenge();
         stats.blocked = false;
         if (stopRequested) break;
         if (!cleared) {
@@ -108,6 +124,7 @@ function createEngine({ store, profileDir, emit }) {
         continue;
       }
       if (result.blocked || result.timeout) {
+        profileSlots = profileSlotsAfter(profileSlots, result.status);
         let why = result.status ? `Ответ ${result.status}` : "Таймаут";
         if (!result.status && !String(store.data.proxy || "").trim()) {
           why += ". Сайт не открылся — укажите прокси socks5://host:port, если Myfxbook недоступен из вашей страны";
@@ -129,6 +146,7 @@ function createEngine({ store, profileDir, emit }) {
       country,
       stopped: () => stopRequested,
       request,
+      profileSlots: () => profileSlots,
       sleep,
       isChecked: (username) => store.isChecked(username),
       hasLead: (username) => store.hasLead(username),
@@ -179,6 +197,7 @@ function createEngine({ store, profileDir, emit }) {
     stats.progress = null;
     stats.blocked = false;
     stats.backoffStep = 0;
+    profileSlots = 2;
     stats.country = country;
     stats.siteId = siteId;
     stats.phase = "starting";
