@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("leadfinder", {
   checkProxy: (value) => ipcRenderer.invoke("check-proxy", value),
   exportFile: (kind) => ipcRenderer.invoke("export", kind),
   clearLeads: () => ipcRenderer.invoke("clear-leads"),
+  resetMemory: () => ipcRenderer.invoke("reset-memory"),
   openUrl: (url) => ipcRenderer.invoke("open-url", url),
   onStatus: (callback) => {
     const listener = (_event, status) => callback(status);

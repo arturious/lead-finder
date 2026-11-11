@@ -228,6 +228,35 @@ test("csv and xlsx exports", () => {
   assert.match(xlsx.toString("utf8"), /save2009/);
 });
 
+test("resetting search memory keeps leads and settings", () => {
+  const file = path.join(os.tmpdir(), `lead-finder-memory-${Date.now()}.json`);
+  const store = createStore(file);
+  store.markChecked("quiet", { country: "Thailand", noContacts: true });
+  store.setCursors("Thailand", { forum: 3 });
+  store.setCursors("Germany", { systems: 2 });
+  store.upsertLead({
+    username: "save2009",
+    country: "Thailand",
+    source: "forum",
+    foundAt: "2026-11-10 12:00"
+  });
+  store.setProxy("socks5://127.0.0.1:1080");
+  store.setLast("myfxbook", "Thailand");
+  store.setMinExperience("1-3 years");
+  store.clearMemory();
+  assert.deepEqual(store.data.checked, {});
+  assert.deepEqual(store.data.cursors, {});
+  assert.equal(store.leadsFor("Thailand")[0].username, "save2009");
+  assert.equal(store.data.proxy, "socks5://127.0.0.1:1080");
+  assert.equal(store.data.lastCountry, "Thailand");
+  assert.equal(store.data.minExperience, "1-3 years");
+  const again = createStore(file);
+  assert.deepEqual(again.data.checked, {});
+  assert.deepEqual(again.data.cursors, {});
+  assert.equal(again.data.leads.length, 1);
+  fs.unlinkSync(file);
+});
+
 test("store remembers checked names and leads per country", () => {
   const file = path.join(os.tmpdir(), `lead-finder-test-${Date.now()}.json`);
   const store = createStore(file);

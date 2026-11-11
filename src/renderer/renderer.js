@@ -42,6 +42,7 @@ function syncActionButtons() {
   $("export-csv").disabled = empty;
   $("export-xlsx").disabled = empty;
   $("clear-leads").disabled = state.running || empty;
+  $("reset-memory").disabled = state.running;
 }
 
 function renderLeadRow(lead) {
@@ -233,6 +234,16 @@ $("show-browser").addEventListener("click", () => {
 
 $("export-csv").addEventListener("click", () => exportFile("csv"));
 $("export-xlsx").addEventListener("click", () => exportFile("xlsx"));
+
+$("reset-memory").addEventListener("click", async () => {
+  if (state.running) return;
+  $("reset-memory").disabled = true;
+  try {
+    await window.leadfinder.resetMemory();
+  } finally {
+    syncActionButtons();
+  }
+});
 
 $("clear-leads").addEventListener("click", async () => {
   if (state.running) return;

@@ -131,6 +131,11 @@ function createStore(file) {
       data.checked = {};
       data.cursors = {};
       saveNow();
+    },
+    clearMemory() {
+      data.checked = {};
+      data.cursors = {};
+      saveNow();
     }
   };
 }

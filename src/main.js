@@ -109,6 +109,21 @@ app.whenReady().then(() => {
     shell.openExternal(url.toString());
   });
 
+  ipcMain.handle("reset-memory", async () => {
+    if (engine.snapshot().running) return { ok: false, busy: true };
+    const answer = await dialog.showMessageBox(mainWindow, {
+      type: "question",
+      buttons: ["Сбросить", "Отмена"],
+      defaultId: 1,
+      cancelId: 1,
+      message: "Поиск начнётся с начала. Найденные лиды останутся."
+    });
+    if (answer.response !== 0) return { ok: false, canceled: true };
+    if (engine.snapshot().running) return { ok: false, busy: true };
+    store.clearMemory();
+    return { ok: true };
+  });
+
   ipcMain.handle("clear-leads", async () => {
     if (engine.snapshot().running) return { ok: false, busy: true };
     const answer = await dialog.showMessageBox(mainWindow, {
