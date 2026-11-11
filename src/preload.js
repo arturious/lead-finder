@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("leadfinder", {
   saveProxy: (value) => ipcRenderer.invoke("save-proxy", value),
   checkProxy: (value) => ipcRenderer.invoke("check-proxy", value),
   exportFile: (kind) => ipcRenderer.invoke("export", kind),
+  clearLeads: () => ipcRenderer.invoke("clear-leads"),
   openUrl: (url) => ipcRenderer.invoke("open-url", url),
   onStatus: (callback) => {
     const listener = (_event, status) => callback(status);

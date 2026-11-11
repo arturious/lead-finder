@@ -100,6 +100,12 @@ function createStore(file) {
     setProxy(value) {
       data.proxy = String(value || "").trim();
       scheduleSave();
+    },
+    clearFound() {
+      data.leads = [];
+      data.checked = {};
+      data.cursors = {};
+      saveNow();
     }
   };
 }

@@ -214,9 +214,24 @@ test("store remembers checked names and leads per country", () => {
   assert.equal(saved[0].gain, "9%");
   assert.equal(saved[0].foundAt, "2026-11-10 12:00");
   assert.equal(saved[0].online, true);
+  store.setProxy("socks5://127.0.0.1:1080");
+  store.setLast("myfxbook", "Thailand");
+  store.setCursors("Thailand", { forum: 3 });
   store.saveNow();
   const again = createStore(file);
   assert.equal(again.leadsFor("Thailand")[0].username, "save2009");
+  again.clearFound();
+  assert.equal(again.data.leads.length, 0);
+  assert.deepEqual(again.data.checked, {});
+  assert.deepEqual(again.data.cursors, {});
+  assert.equal(again.data.proxy, "socks5://127.0.0.1:1080");
+  assert.equal(again.data.lastCountry, "Thailand");
+  assert.equal(again.data.lastSite, "myfxbook");
+  assert.equal(again.isChecked("other"), false);
+  const kept = createStore(file);
+  assert.equal(kept.data.leads.length, 0);
+  assert.equal(kept.data.proxy, "socks5://127.0.0.1:1080");
+  assert.equal(kept.data.lastCountry, "Thailand");
   fs.unlinkSync(file);
 });
 

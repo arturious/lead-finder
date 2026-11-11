@@ -102,6 +102,22 @@ app.whenReady().then(() => {
     shell.openExternal(url.toString());
   });
 
+  ipcMain.handle("clear-leads", async () => {
+    if (engine.snapshot().running) return { ok: false, busy: true };
+    const answer = await dialog.showMessageBox(mainWindow, {
+      type: "question",
+      buttons: ["Удалить", "Отмена"],
+      defaultId: 1,
+      cancelId: 1,
+      message: "Удалить всех найденных лидов?"
+    });
+    if (answer.response !== 0) return { ok: false, canceled: true };
+    if (engine.snapshot().running) return { ok: false, busy: true };
+    store.clearFound();
+    send("leads", []);
+    return { ok: true };
+  });
+
   ipcMain.handle("export", async (_event, kind) => {
     const requested = kind && typeof kind === "object" ? kind : { kind };
     kind = requested.kind;

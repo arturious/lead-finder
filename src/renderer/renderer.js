@@ -32,9 +32,14 @@ function setStatus(status) {
   ui.start.disabled = !state.running && !state.country;
   ui.site.disabled = state.running;
   ui.countryInput.disabled = state.running;
-  document.querySelectorAll(".exports button").forEach((button) => {
-    button.disabled = state.leads.size === 0;
-  });
+  syncActionButtons();
+}
+
+function syncActionButtons() {
+  const empty = state.leads.size === 0;
+  $("export-csv").disabled = empty;
+  $("export-xlsx").disabled = empty;
+  $("clear-leads").disabled = state.running || empty;
 }
 
 function renderLeadRow(lead) {
@@ -84,9 +89,7 @@ function upsertRow(lead) {
   if (prev) prev.replaceWith(next);
   else ui.rows.prepend(next);
   ui.empty.hidden = state.leads.size > 0;
-  document.querySelectorAll(".exports button").forEach((button) => {
-    button.disabled = false;
-  });
+  syncActionButtons();
 }
 
 function replaceLeads(leads) {
@@ -95,9 +98,7 @@ function replaceLeads(leads) {
   for (const lead of leads || []) upsertRow(lead);
   ui.empty.hidden = state.leads.size > 0;
   if (!state.running) $("m-leads").textContent = String(state.leads.size);
-  document.querySelectorAll(".exports button").forEach((button) => {
-    button.disabled = state.leads.size === 0;
-  });
+  syncActionButtons();
 }
 
 function filteredCountries() {
@@ -225,6 +226,17 @@ $("show-browser").addEventListener("click", () => {
 
 $("export-csv").addEventListener("click", () => exportFile("csv"));
 $("export-xlsx").addEventListener("click", () => exportFile("xlsx"));
+
+$("clear-leads").addEventListener("click", async () => {
+  if (state.running) return;
+  $("clear-leads").disabled = true;
+  try {
+    const result = await window.leadfinder.clearLeads();
+    if (result && result.ok) replaceLeads([]);
+  } finally {
+    syncActionButtons();
+  }
+});
 
 window.leadfinder.onStatus(setStatus);
 window.leadfinder.onLead((payload) => {
