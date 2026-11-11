@@ -5,7 +5,10 @@ const {
   isMissingChrome,
   challengeRetryDelayMs,
   challengeAttemptMessage,
-  retryChallengeQuietly
+  retryChallengeQuietly,
+  browserLaunchArgs,
+  shouldRelaunchHeaded,
+  HEADLESS_SWITCH_MESSAGE
 } = require("../src/browser");
 
 test("chromium download progress is a status update", () => {
@@ -82,4 +85,14 @@ test("cloudflare challenge reloads with a growing pause before the window is sho
   });
   assert.equal(stopped, false);
   assert.equal(stoppedReloads, 0);
+});
+
+test("search starts in new headless and opens a window only after quiet retries fail", () => {
+  assert.deepEqual(browserLaunchArgs({ headed: false, sandbox: true }), ["--headless=new"]);
+  assert.deepEqual(browserLaunchArgs({ headed: true, sandbox: true }), ["--start-minimized"]);
+  assert.deepEqual(browserLaunchArgs({ headed: false, sandbox: false }), ["--headless=new", "--no-sandbox", "--disable-dev-shm-usage"]);
+  assert.equal(shouldRelaunchHeaded(false, true), false);
+  assert.equal(shouldRelaunchHeaded(false, false), true);
+  assert.equal(shouldRelaunchHeaded(true, false), false);
+  assert.match(HEADLESS_SWITCH_MESSAGE, /Открываю окно/);
 });
