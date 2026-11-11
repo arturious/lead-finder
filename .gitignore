@@ -1,5 +1,6 @@
 node_modules/
 dist/
 .venv-camoufox/
+__pycache__/
 .DS_Store
 *.log
