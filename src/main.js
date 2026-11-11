@@ -96,6 +96,8 @@ app.whenReady().then(() => {
     return engine.snapshot();
   });
 
+  ipcMain.handle("show-browser", () => engine.showBrowser());
+
   ipcMain.handle("open-url", (_event, raw) => {
     let url;
     try { url = new URL(String(raw)); } catch { return; }

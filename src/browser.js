@@ -10,9 +10,8 @@ function shouldBlockResource(type) {
   return BLOCKED_TYPES.has(type);
 }
 
-// Headless by default (Chrome's new headless, same binary and profile).
-// A Cloudflare page is reloaded up to three times while still headless.
-// Only then is a headed window opened, minimized until the click is needed.
+// Headed Chrome, parked off-screen. A minimized window gets throttled and
+// Cloudflare stalls, so the window stays normal and is never brought forward.
 // viewport stays null and userAgent is unset: both overrides are a fingerprint.
 
 function parseInstallLine(line) {
@@ -95,19 +94,18 @@ function challengeAttemptMessage(attempt, total = CHALLENGE_ATTEMPTS) {
   return `Cloudflare: попытка ${attempt}/${total}…`;
 }
 
-// Playwright's headless:true swaps bundled Chromium for chromium-headless-shell,
-// a different binary than the installed Google Chrome for Testing. Passing
-// --headless=new keeps that binary and uses Chrome's new headless mode.
-const HEADLESS_SWITCH_MESSAGE = "Проверка Cloudflare не прошла сама. Открываю окно браузера…";
+const CHALLENGE_STILL_MESSAGE = "Cloudflare всё ещё на странице. Окно скрыто, проверка повторяется.";
 
-function browserLaunchArgs({ headed, sandbox }) {
-  const args = headed ? ["--start-minimized"] : ["--headless=new"];
+function browserLaunchArgs({ sandbox }) {
+  const args = [
+    "--window-position=-32000,-32000",
+    "--window-size=480,360",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling"
+  ];
   if (!sandbox) args.push("--no-sandbox", "--disable-dev-shm-usage");
   return args;
-}
-
-function shouldRelaunchHeaded(headed, clearedQuietly) {
-  return !clearedQuietly && !headed;
 }
 
 // Wait, then reload. No clicks. True when the existing challenge check clears.
@@ -190,33 +188,34 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
   let opening = null;
   let generation = 0;
   let relay = null;
-  let headed = false;
-  let browserKind = "chrome";
   let siteChain = Promise.resolve();
 
   function report(update) {
     if (onProgress) onProgress(update);
   }
 
-  async function placeWindow(target, visible) {
-    if (!context || !target) return;
+  async function setWindowBounds(target, bounds) {
+    if (!context || !target) return false;
     try {
       const session = await context.newCDPSession(target);
       const { windowId } = await session.send("Browser.getWindowForTarget");
-      if (visible) {
-        await session.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "normal" } });
-        await session.send("Browser.setWindowBounds", {
-          windowId,
-          bounds: { left: 80, top: 60, width: 1100, height: 800 }
-        });
-        await target.bringToFront().catch(() => {});
-      } else {
-        await session.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "minimized" } });
-      }
+      await session.send("Browser.setWindowBounds", {
+        windowId,
+        bounds: { windowState: "normal", ...bounds }
+      });
       await session.detach().catch(() => {});
+      return true;
     } catch {
-      if (visible && target) await target.bringToFront().catch(() => {});
+      return false;
     }
+  }
+
+  function parkWindow(target) {
+    return setWindowBounds(target, { left: -32000, top: -32000, width: 480, height: 360 });
+  }
+
+  function showWindow() {
+    return setWindowBounds(page, { left: 80, top: 60, width: 1100, height: 800 });
   }
 
   async function launch(kind) {
@@ -231,11 +230,10 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
     fs.mkdirSync(dir, { recursive: true });
     const sandbox = wantsSandbox();
     const options = {
-      // false so Patchright keeps the full browser; new headless is an arg.
       headless: false,
       viewport: null,
       chromiumSandbox: sandbox,
-      args: browserLaunchArgs({ headed, sandbox })
+      args: browserLaunchArgs({ sandbox })
     };
     if (kind === "chrome") options.channel = "chrome";
     if (relay) options.proxy = relay.proxy;
@@ -251,9 +249,7 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
         relay = await prepareChromeProxy(proxy);
         if (token !== generation) return;
         report({ phase: "starting", message: "Запуск Chrome…", progress: null });
-        headed = false;
         try {
-          browserKind = "chrome";
           launched = await launch("chrome");
         } catch (error) {
           if (!isMissingChrome(error)) throw error;
@@ -265,7 +261,6 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
           );
           if (!installed || token !== generation) return;
           report({ phase: "starting", message: "Запуск Chromium…", progress: null });
-          browserKind = "chromium";
           launched = await launch("chromium");
         }
         if (token !== generation) {
@@ -277,7 +272,7 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
         context.setDefaultTimeout(70000);
         page.setDefaultTimeout(70000);
         await blockHeavy(context);
-        if (headed) await placeWindow(page, false);
+        await parkWindow(page);
       } finally {
         if (!context && relay) {
           await relay.close().catch(() => {});
@@ -397,93 +392,40 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
     return { status: result.status, text: result.text };
   }
 
-  async function waitUntilClear(shouldStop) {
-    const deadline = Date.now() + 15 * 60 * 1000;
-    while (Date.now() < deadline) {
-      if (shouldStop && shouldStop()) return false;
-      if (!page) return false;
-      if (!(await pageLooksChallenged(page))) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        return true;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-    }
-    return false;
-  }
-
-  async function relaunchHeaded() {
-    const token = generation;
-    const current = context;
-    context = null;
-    page = null;
-    if (current) await current.close().catch(() => {});
-    if (token !== generation) return false;
-    headed = true;
-    let launched = null;
-    try {
-      launched = await launch(browserKind || "chromium");
-    } catch {
-      if (launched) await launched.close().catch(() => {});
-      headed = false;
-      return false;
-    }
-    if (token !== generation) {
-      await launched.close().catch(() => {});
-      return false;
-    }
-    context = launched;
-    page = context.pages()[0] || await context.newPage();
-    context.setDefaultTimeout(70000);
-    page.setDefaultTimeout(70000);
-    await blockHeavy(context);
-    await placeWindow(page, false);
-    return true;
-  }
-
   async function showForChallenge(shouldStop) {
     const target = await ensurePage();
     if (!target) return false;
-    if (headed) await placeWindow(target, false);
     if (!(await pageLooksChallenged(target))) {
       const ok = await gotoEntry(target);
       if (!ok) return false;
     }
     if (!(await pageLooksChallenged(target))) return true;
-    const clearedQuietly = await retryChallengeQuietly({
-      looksChallenged: () => pageLooksChallenged(target),
-      reload: () => target.reload({ waitUntil: "domcontentloaded", timeout: 90000 }).catch(() => {}),
-      sleep: (ms) => waitMs(ms, shouldStop),
-      shouldStop,
-      onAttempt: (attempt, total) => {
-        report({ phase: "challenge", message: challengeAttemptMessage(attempt, total) });
+    let quiet = true;
+    while (!(shouldStop && shouldStop())) {
+      const cleared = await retryChallengeQuietly({
+        looksChallenged: () => pageLooksChallenged(target),
+        reload: () => target.reload({ waitUntil: "domcontentloaded", timeout: 90000 }).catch(() => {}),
+        sleep: (ms) => waitMs(ms, shouldStop),
+        shouldStop,
+        onAttempt: (attempt, total) => {
+          report({
+            phase: "challenge",
+            message: quiet ? challengeAttemptMessage(attempt, total) : CHALLENGE_STILL_MESSAGE
+          });
+        }
+      });
+      if (shouldStop && shouldStop()) return false;
+      if (cleared) {
+        report({ phase: "running", message: "Проверка Cloudflare прошла, продолжаю поиск." });
+        return true;
       }
-    });
-    if (shouldStop && shouldStop()) return false;
-    if (clearedQuietly) {
-      if (headed) await placeWindow(target, false);
-      report({ phase: "running", message: "Проверка Cloudflare прошла, продолжаю поиск." });
-      return true;
+      quiet = false;
+      report({ phase: "challenge", message: CHALLENGE_STILL_MESSAGE });
     }
-    if (shouldRelaunchHeaded(headed, clearedQuietly)) {
-      report({ phase: "challenge", message: HEADLESS_SWITCH_MESSAGE });
-      const switched = await relaunchHeaded();
-      if (!switched || (shouldStop && shouldStop())) return false;
-      if (!(await pageLooksChallenged(page))) {
-        const ok = await gotoEntry(page);
-        if (!ok) return false;
-      }
-    }
-    await placeWindow(page, true);
-    report({
-      phase: "challenge",
-      message: "Cloudflare «Just a moment». Пройдите проверку в окне браузера — поиск продолжится сам."
-    });
-    const cleared = await waitUntilClear(shouldStop);
-    if (cleared && !(shouldStop && shouldStop())) await placeWindow(page, false);
-    return cleared;
+    return false;
   }
 
-  return { open, close, fetch, showForChallenge };
+  return { open, close, fetch, showForChallenge, showWindow };
 }
 
 patchDriverFork();
@@ -497,7 +439,6 @@ module.exports = {
   challengeAttemptMessage,
   retryChallengeQuietly,
   browserLaunchArgs,
-  shouldRelaunchHeaded,
-  HEADLESS_SWITCH_MESSAGE,
+  CHALLENGE_STILL_MESSAGE,
   CHALLENGE_ATTEMPTS
 };

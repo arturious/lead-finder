@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("leadfinder", {
   leadsFor: (country) => ipcRenderer.invoke("leads-for", country),
   start: (payload) => ipcRenderer.invoke("start", payload),
   stop: () => ipcRenderer.invoke("stop"),
+  showBrowser: () => ipcRenderer.invoke("show-browser"),
   saveProxy: (value) => ipcRenderer.invoke("save-proxy", value),
   checkProxy: (value) => ipcRenderer.invoke("check-proxy", value),
   exportFile: (kind) => ipcRenderer.invoke("export", kind),

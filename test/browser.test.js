@@ -8,8 +8,7 @@ const {
   challengeAttemptMessage,
   retryChallengeQuietly,
   browserLaunchArgs,
-  shouldRelaunchHeaded,
-  HEADLESS_SWITCH_MESSAGE
+  CHALLENGE_STILL_MESSAGE
 } = require("../src/browser");
 
 test("chromium download progress is a status update", () => {
@@ -99,12 +98,15 @@ test("cloudflare challenge reloads with a growing pause before the window is sho
   assert.equal(stoppedReloads, 0);
 });
 
-test("search starts in new headless and opens a window only after quiet retries fail", () => {
-  assert.deepEqual(browserLaunchArgs({ headed: false, sandbox: true }), ["--headless=new"]);
-  assert.deepEqual(browserLaunchArgs({ headed: true, sandbox: true }), ["--start-minimized"]);
-  assert.deepEqual(browserLaunchArgs({ headed: false, sandbox: false }), ["--headless=new", "--no-sandbox", "--disable-dev-shm-usage"]);
-  assert.equal(shouldRelaunchHeaded(false, true), false);
-  assert.equal(shouldRelaunchHeaded(false, false), true);
-  assert.equal(shouldRelaunchHeaded(true, false), false);
-  assert.match(HEADLESS_SWITCH_MESSAGE, /Открываю окно/);
+test("the browser launches headed, off-screen, and is not minimized", () => {
+  const args = browserLaunchArgs({ sandbox: true });
+  assert.equal(args.includes("--headless=new"), false);
+  assert.equal(args.includes("--start-minimized"), false);
+  assert.ok(args.includes("--window-position=-32000,-32000"));
+  assert.ok(args.includes("--window-size=480,360"));
+  assert.ok(args.includes("--disable-backgrounding-occluded-windows"));
+  assert.ok(args.includes("--disable-renderer-backgrounding"));
+  assert.ok(args.includes("--disable-background-timer-throttling"));
+  assert.ok(browserLaunchArgs({ sandbox: false }).includes("--no-sandbox"));
+  assert.match(CHALLENGE_STILL_MESSAGE, /Окно скрыто/);
 });

@@ -149,6 +149,18 @@ select, #country-input {
 
 .status { padding-bottom: 8px; }
 
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#show-browser {
+  flex: none;
+  padding: 4px 10px;
+}
+
 .metrics {
   display: flex;
   flex-wrap: wrap;

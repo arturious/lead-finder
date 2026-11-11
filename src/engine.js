@@ -260,7 +260,12 @@ function createEngine({ store, profileDir, emit }) {
     return snapshot();
   }
 
-  return { start, stop, snapshot };
+  function showBrowser() {
+    if (!browser || typeof browser.showWindow !== "function") return false;
+    return browser.showWindow();
+  }
+
+  return { start, stop, snapshot, showBrowser };
 }
 
 module.exports = { createEngine, backoffMinutes, politeDelayMs };

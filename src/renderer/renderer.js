@@ -219,6 +219,10 @@ $("proxy-check").addEventListener("click", async () => {
   }
 });
 
+$("show-browser").addEventListener("click", () => {
+  window.leadfinder.showBrowser();
+});
+
 $("export-csv").addEventListener("click", () => exportFile("csv"));
 $("export-xlsx").addEventListener("click", () => exportFile("xlsx"));
 
