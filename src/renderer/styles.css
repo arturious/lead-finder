@@ -89,6 +89,8 @@ select, #country-input {
   min-width: 220px;
 }
 
+#experience { min-width: 190px; }
+
 .start {
   min-width: 220px;
   padding: 12px 28px;

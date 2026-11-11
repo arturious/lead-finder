@@ -197,6 +197,7 @@ function createEngine({ store, profileDir, emit }) {
         stats.blocked = phase === "blocked" || phase === "challenge";
         emitStatus();
       },
+      minExperience: () => store.data.minExperience || "",
       loadCursors: () => store.getCursors(country),
       saveCursors: (cursors) => store.setCursors(country, cursors),
       entryUrl: source.entryUrl

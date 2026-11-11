@@ -60,6 +60,7 @@ app.whenReady().then(() => {
     countries: COUNTRIES,
     lastCountry: store.data.lastCountry || "",
     lastSite: store.data.lastSite || "myfxbook",
+    minExperience: store.data.minExperience || "",
     leads: store.leadsFor(store.data.lastCountry || ""),
     status: engine.snapshot(),
     proxy: store.data.proxy || ""
@@ -73,7 +74,13 @@ app.whenReady().then(() => {
   ipcMain.handle("start", async (_event, payload) => {
     const body = payload || {};
     if (Object.prototype.hasOwnProperty.call(body, "proxy")) await engine.useProxy(body.proxy);
+    if (Object.prototype.hasOwnProperty.call(body, "minExperience")) store.setMinExperience(body.minExperience);
     return engine.start(body);
+  });
+
+  ipcMain.handle("save-experience", (_event, value) => {
+    store.setMinExperience(value);
+    return store.data.minExperience || "";
   });
 
   ipcMain.handle("save-proxy", (_event, value) => engine.useProxy(value));

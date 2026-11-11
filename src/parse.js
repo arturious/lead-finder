@@ -171,6 +171,31 @@ function extractBio(html) {
     .join("\n");
 }
 
+// Public profile field, in the order Myfxbook shows it. A chosen minimum
+// keeps that level and every longer one. Blank means any experience.
+const EXPERIENCE_LEVELS = [
+  { id: "", label: "Любой" },
+  { id: "Less than a year", label: "Менее года и больше" },
+  { id: "1-3 years", label: "1–3 года и больше" },
+  { id: "3-5 years", label: "3–5 лет и больше" },
+  { id: "More than 5 years", label: "Более 5 лет" }
+];
+
+function experienceRank(text) {
+  const value = String(text || "").toLowerCase().replace(/[–—]/g, "-").replace(/\s+/g, " ").trim();
+  if (/more than 5|over 5 years|5\+ years/.test(value)) return 4;
+  if (/3\s*-\s*5/.test(value)) return 3;
+  if (/1\s*-\s*3/.test(value)) return 2;
+  if (/less than (a|1) year/.test(value)) return 1;
+  return 0;
+}
+
+function meetsExperience(text, minimum) {
+  const need = experienceRank(minimum);
+  if (!need) return true;
+  return experienceRank(text) >= need;
+}
+
 function parseProfile(html) {
   const bio = extractBio(html);
   const online = /class="online-indicator\s*"/.test(html || "")
@@ -245,6 +270,9 @@ module.exports = {
   parseForumItems,
   parseSystemsUsernames,
   parseProfile,
+  EXPERIENCE_LEVELS,
+  experienceRank,
+  meetsExperience,
   agoDays,
   isChallengeHtml,
   isHardBlockHtml,

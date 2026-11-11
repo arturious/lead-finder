@@ -44,11 +44,13 @@ test("proxy rules point at the forwarder for authenticated socks and direct othe
   });
 });
 
-test("images, media and fonts are blocked, scripts and styles are not", () => {
+test("images, media, fonts and site scripts are blocked; the challenge script stays", () => {
   assert.equal(shouldBlockResource("image"), true);
   assert.equal(shouldBlockResource("media"), true);
   assert.equal(shouldBlockResource("font"), true);
-  assert.equal(shouldBlockResource("script"), false);
+  assert.equal(shouldBlockResource("script", "https://www.myfxbook.com/js/app.js"), true);
+  assert.equal(shouldBlockResource("script", "https://challenges.cloudflare.com/turnstile/v0/api.js"), false);
+  assert.equal(shouldBlockResource("script", "https://www.myfxbook.com/cdn-cgi/challenge-platform/h/g/orchestrate.js"), false);
   assert.equal(shouldBlockResource("stylesheet"), false);
   assert.equal(shouldBlockResource("xhr"), false);
   assert.equal(shouldBlockResource("fetch"), false);

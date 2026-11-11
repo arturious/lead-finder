@@ -13,6 +13,7 @@ const {
   parseForumItems,
   parseSystemsUsernames,
   parseProfile,
+  meetsExperience,
   agoDays,
   findCountryStart
 } = require("../parse");
@@ -202,14 +203,19 @@ async function consider(ctx, item) {
   const profile = res.status === 200 ? parseProfile(res.text) : null;
   const location = (profile && profile.location) || item.country || "";
 
+  const minimum = typeof ctx.minExperience === "function" ? ctx.minExperience() : "";
+  const experienced = meetsExperience(profile && profile.experience, minimum);
+
   if (item.country) {
-    ctx.addLead(leadFrom(item.username, item.country, item.source, item.kind, item.recency, item.online, profile, item.stats));
+    if (experienced) {
+      ctx.addLead(leadFrom(item.username, item.country, item.source, item.kind, item.recency, item.online, profile, item.stats));
+    }
     ctx.markChecked(item.username, { country: item.country });
     return;
   }
 
   ctx.markChecked(item.username, { country: location });
-  if (!countryMatches(location, ctx.country)) return;
+  if (!countryMatches(location, ctx.country) || !experienced) return;
   ctx.addLead(leadFrom(item.username, location, item.source, item.kind, item.recency, item.online, profile, item.stats));
 }
 

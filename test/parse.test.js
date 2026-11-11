@@ -13,7 +13,8 @@ const {
   findCountryStart,
   isChallengeHtml,
   isHardBlockHtml,
-  decodeCfEmail
+  decodeCfEmail,
+  meetsExperience
 } = require("../src/parse");
 const { contestPageUrl, systemsPageUrl, SYSTEMS_DAYS, run, eachProfile } = require("../src/sources/myfxbook");
 const { leadsToCsv, leadsToXlsx } = require("../src/export");
@@ -225,6 +226,8 @@ test("store remembers checked names and leads per country", () => {
   assert.deepEqual(again.data.checked, {});
   assert.deepEqual(again.data.cursors, {});
   assert.equal(again.data.proxy, "socks5://127.0.0.1:1080");
+  again.setMinExperience("3-5 years");
+  again.saveNow();
   assert.equal(again.data.lastCountry, "Thailand");
   assert.equal(again.data.lastSite, "myfxbook");
   assert.equal(again.isChecked("other"), false);
@@ -232,7 +235,19 @@ test("store remembers checked names and leads per country", () => {
   assert.equal(kept.data.leads.length, 0);
   assert.equal(kept.data.proxy, "socks5://127.0.0.1:1080");
   assert.equal(kept.data.lastCountry, "Thailand");
+  assert.equal(kept.data.minExperience, "3-5 years");
   fs.unlinkSync(file);
+});
+
+test("experience minimum follows Myfxbook's four profile values", () => {
+  assert.equal(meetsExperience("Less than a year", ""), true);
+  assert.equal(meetsExperience("", "1-3 years"), false);
+  assert.equal(meetsExperience("Less than a year", "1-3 years"), false);
+  assert.equal(meetsExperience("Less than 1 year", "Less than a year"), true);
+  assert.equal(meetsExperience("1-3 years", "1-3 years"), true);
+  assert.equal(meetsExperience("3-5 years", "1-3 years"), true);
+  assert.equal(meetsExperience("More than 5 years", "3-5 years"), true);
+  assert.equal(meetsExperience("1-3 years", "More than 5 years"), false);
 });
 
 test("a round checks the live contest, then forum, then systems, and skips other countries", async () => {
@@ -312,6 +327,53 @@ test("a round checks the live contest, then forum, then systems, and skips other
   assert.equal(thai.country, "Thailand");
   assert.ok(leads.some((lead) => lead.username === "forumthai" && /пост/.test(lead.liveness)));
   assert.ok(leads.some((lead) => lead.username === "systhai" && /сделка/.test(lead.liveness)));
+});
+
+test("a profile below the experience minimum is checked and not saved", async () => {
+  const leads = [];
+  const checked = new Set();
+  let stop = false;
+  const ctx = {
+    country: "Thailand",
+    minExperience: () => "More than 5 years",
+    stopped: () => stop,
+    async request(url) {
+      if (url.endsWith("/contests")) {
+        return { status: 200, text: '<div>Live now <a href="/contests/now-3">current</a></div>' };
+      }
+      if (url.includes("id=3")) {
+        return {
+          status: 200,
+          text: `<input id="totalResultsCount" value="1" />
+            <tr class="contests-page"><td></td><td></td><td></td><td>$1</td><td>2%</td><td>3%</td><td>4</td><td>5</td><td>Manual</td>
+            <td><a href="https://www.myfxbook.com/members/thaiuser/s/1">t</a></td>
+            <td><span class="flag-icon-th" title="Thailand"></span></td></tr>`
+        };
+      }
+      if (url.includes("/members/thaiuser")) {
+        return {
+          status: 200,
+          text: `<span class="detail-title">Location:</span> <span>Thailand</span>
+            <span class="detail-title">Experience:</span> <span>1-3 years</span>`
+        };
+      }
+      stop = true;
+      return { status: 200, text: "" };
+    },
+    async sleep() { stop = true; },
+    isChecked: (username) => checked.has(username.toLowerCase()),
+    hasLead: () => false,
+    markChecked: (username) => checked.add(username.toLowerCase()),
+    noteProfile() {},
+    addLead(lead) { leads.push(lead); return "new"; },
+    setSource() {},
+    setPhase() {},
+    loadCursors: () => null,
+    saveCursors() {}
+  };
+  await run(ctx);
+  assert.equal(checked.has("thaiuser"), true);
+  assert.equal(leads.length, 0);
 });
 
 test("profile fetches run two at a time until the slot count drops", async () => {

@@ -9,7 +9,8 @@ const ui = {
   empty: $("empty"),
   statusLine: $("status-line"),
   proxyInput: $("proxy-input"),
-  proxyNote: $("proxy-note")
+  proxyNote: $("proxy-note"),
+  experience: $("experience")
 };
 
 const state = {
@@ -32,6 +33,7 @@ function setStatus(status) {
   ui.start.disabled = !state.running && !state.country;
   ui.site.disabled = state.running;
   ui.countryInput.disabled = state.running;
+  ui.experience.disabled = state.running;
   syncActionButtons();
 }
 
@@ -183,7 +185,8 @@ ui.start.addEventListener("click", async () => {
       await window.leadfinder.start({
         siteId: ui.site.value,
         country: state.country,
-        proxy: ui.proxyInput.value
+        proxy: ui.proxyInput.value,
+        minExperience: ui.experience.value
       });
     }
   } catch (error) {
@@ -218,6 +221,10 @@ $("proxy-check").addEventListener("click", async () => {
     ui.proxyNote.textContent = error && error.message ? error.message : "Прокси недоступен";
     ui.proxyNote.className = "note error";
   }
+});
+
+ui.experience.addEventListener("change", () => {
+  window.leadfinder.saveExperience(ui.experience.value);
 });
 
 $("show-browser").addEventListener("click", () => {
@@ -258,6 +265,7 @@ window.leadfinder.bootstrap().then((data) => {
     ui.countryInput.value = data.lastCountry;
   }
   replaceLeads(data.leads || []);
+  if (data.minExperience) ui.experience.value = data.minExperience;
   if (data.proxy) ui.proxyInput.value = data.proxy;
   setStatus(data.status || {});
 }).catch((error) => {

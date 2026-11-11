@@ -10,8 +10,13 @@ const sessionsHooked = new WeakSet();
 const proxyAuthByContents = new Map();
 let loginHooked = false;
 
-function shouldBlockResource(type) {
-  return BLOCKED_TYPES.has(type);
+function isChallengeScript(url) {
+  return /challenges\.cloudflare\.com|\/cdn-cgi\/challenge-platform\/|turnstile/i.test(String(url || ""));
+}
+
+function shouldBlockResource(type, url) {
+  if (BLOCKED_TYPES.has(type)) return true;
+  return type === "script" && !isChallengeScript(url);
 }
 
 function shouldReuseBrowser(open, launchedProxy, proxy) {
@@ -108,7 +113,7 @@ function blockHeavy(session) {
   if (!session || sessionsHooked.has(session)) return;
   sessionsHooked.add(session);
   session.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
-    callback(shouldBlockResource(details.resourceType) ? { cancel: true } : {});
+    callback(shouldBlockResource(details.resourceType, details.url) ? { cancel: true } : {});
   });
 }
 
@@ -265,12 +270,61 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
   }
 
   async function pageLooksChallenged(target) {
-    const title = target.getTitle();
+    let title = "";
+    try { title = target.getTitle() || ""; } catch { return true; }
     if (/just a moment/i.test(title)) return true;
     const html = await target.executeJavaScript(
       "document.documentElement ? document.documentElement.outerHTML : ''"
     ).catch(() => "");
+    if (!html) {
+      let loading = true;
+      try { loading = target.isLoading(); } catch { loading = true; }
+      if (loading || !title) return true;
+    }
     return isChallengeHtml(html, title);
+  }
+
+  // Resolves on did-finish-load, or sooner once the challenge markup is gone.
+  function waitForClearOrLoad(target, shouldStop) {
+    return new Promise((resolve) => {
+      let settled = false;
+      let pollTimer = null;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearTimeout(pollTimer);
+        target.removeListener("did-finish-load", onFinish);
+        target.removeListener("did-fail-load", onFail);
+        resolve();
+      };
+      const onFinish = () => finish();
+      const onFail = (_event, _code, _desc, _url, isMainFrame) => {
+        if (isMainFrame === false) return;
+        finish();
+      };
+      const poll = () => {
+        if (settled) return;
+        if (shouldStop && shouldStop()) return finish();
+        pageLooksChallenged(target).then((challenged) => {
+          if (settled) return;
+          if (!challenged) return finish();
+          pollTimer = setTimeout(poll, 400);
+        }).catch(() => {
+          if (!settled) pollTimer = setTimeout(poll, 400);
+        });
+      };
+      const timer = setTimeout(finish, 90000);
+      pollTimer = setTimeout(poll, 400);
+      target.once("did-finish-load", onFinish);
+      target.on("did-fail-load", onFail);
+    });
+  }
+
+  function documentUrl(target) {
+    let current = "";
+    try { current = target.getURL(); } catch { current = ""; }
+    return /^https?:/i.test(current) ? current : entryUrl;
   }
 
   async function fetch(url, { xhr = false } = {}) {
@@ -324,10 +378,14 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
     if (!isOpen() || !target) return false;
     const cleared = await reloadUntilClear({
       looksChallenged: () => pageLooksChallenged(target),
-      reload: () => {
-        const pending = waitForLoad(target, 90000);
-        try { target.reload(); } catch { return pending; }
-        return pending;
+      reload: async () => {
+        if (target.isLoading()) {
+          await waitForClearOrLoad(target, shouldStop);
+          return;
+        }
+        const pending = waitForClearOrLoad(target, shouldStop);
+        try { await target.loadURL(documentUrl(target)); } catch { /* did-fail-load settles the wait */ }
+        await pending;
       },
       sleep: (ms) => waitMs(ms, shouldStop),
       shouldStop,
