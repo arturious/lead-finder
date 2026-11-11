@@ -33,6 +33,15 @@
     <button type="button" id="start" class="start" disabled>Начать поиск</button>
   </section>
 
+  <section class="proxy">
+    <label class="field proxy-field">
+      <span>⚙ Прокси</span>
+      <input id="proxy-input" type="text" placeholder="socks5://host:port" autocomplete="off" spellcheck="false" />
+    </label>
+    <button type="button" id="proxy-check" class="ghost">Проверить</button>
+    <p id="proxy-note" class="note"></p>
+  </section>
+
   <section class="status" id="status" aria-live="polite">
     <div class="metrics">
       <span>Запросы <strong id="m-requests">0</strong></span>

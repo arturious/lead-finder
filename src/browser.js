@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 const { isChallengeHtml, isHardBlockHtml } = require("./parse");
+const { prepareChromeProxy } = require("./proxy");
 
 // Headed Chrome, minimized until a Cloudflare check. The same window is
 // shown and hidden so the Turnstile page is not reloaded. viewport stays
@@ -110,11 +111,12 @@ function installChromium(browsersPath, onProgress, isCancelled) {
   });
 }
 
-function createBrowser({ userDataDir, entryUrl, onProgress }) {
+function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
   let context = null;
   let page = null;
   let opening = null;
   let generation = 0;
+  let relay = null;
 
   function report(update) {
     if (onProgress) onProgress(update);
@@ -159,6 +161,7 @@ function createBrowser({ userDataDir, entryUrl, onProgress }) {
       args: sandbox ? ["--start-minimized"] : ["--start-minimized", "--no-sandbox", "--disable-dev-shm-usage"]
     };
     if (kind === "chrome") options.channel = "chrome";
+    if (relay) options.proxy = relay.proxy;
     return chromium.launchPersistentContext(dir, options);
   }
 
@@ -168,6 +171,8 @@ function createBrowser({ userDataDir, entryUrl, onProgress }) {
     opening = (async () => {
       let launched = null;
       try {
+        relay = await prepareChromeProxy(proxy);
+        if (token !== generation) return;
         report({ phase: "starting", message: "Запуск Chrome…", progress: null });
         try {
           launched = await launch("chrome");
@@ -193,6 +198,10 @@ function createBrowser({ userDataDir, entryUrl, onProgress }) {
         page.setDefaultTimeout(70000);
         await placeWindow(page, false);
       } finally {
+        if (!context && relay) {
+          await relay.close().catch(() => {});
+          relay = null;
+        }
         opening = null;
       }
     })();
@@ -213,6 +222,11 @@ function createBrowser({ userDataDir, entryUrl, onProgress }) {
       await extra.close().catch(() => {});
     }
     if (current) await current.close().catch(() => {});
+    if (relay) {
+      const currentRelay = relay;
+      relay = null;
+      await currentRelay.close().catch(() => {});
+    }
   }
 
   async function ensurePage() {

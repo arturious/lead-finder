@@ -3,7 +3,7 @@ const path = require("path");
 const { countryMatches } = require("./parse");
 
 function emptyData() {
-  return { checked: {}, leads: [], cursors: {}, lastCountry: "", lastSite: "myfxbook" };
+  return { checked: {}, leads: [], cursors: {}, lastCountry: "", lastSite: "myfxbook", proxy: "" };
 }
 
 function createStore(file) {
@@ -95,6 +95,10 @@ function createStore(file) {
     setLast(site, country) {
       data.lastSite = site;
       data.lastCountry = country;
+      scheduleSave();
+    },
+    setProxy(value) {
+      data.proxy = String(value || "").trim();
       scheduleSave();
     }
   };

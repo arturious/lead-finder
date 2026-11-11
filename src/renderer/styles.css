@@ -134,6 +134,19 @@ select, #country-input {
 .country-list button:hover,
 .country-list button.active { background: #efe7d8; }
 
+.proxy {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 22px 2px;
+}
+
+.proxy-field { flex: 1; min-width: 0; }
+.proxy-field input { width: 100%; min-width: 0; }
+.proxy .note { margin: 0 0 8px; min-width: 160px; }
+.proxy .note.error { color: var(--stop); }
+.proxy .note.ok { color: var(--green-dark); }
+
 .status { padding-bottom: 8px; }
 
 .metrics {

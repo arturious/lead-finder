@@ -6,6 +6,7 @@ const { listSources } = require("./sources");
 const { createStore } = require("./store");
 const { createEngine } = require("./engine");
 const { leadsToCsv, leadsToXlsx } = require("./export");
+const { checkExitIp } = require("./proxy");
 
 // Containers often ship a broken /dev/shm. The packaged Mac app never takes this path.
 if (process.platform === "linux") {
@@ -60,7 +61,8 @@ app.whenReady().then(() => {
     lastCountry: store.data.lastCountry || "",
     lastSite: store.data.lastSite || "myfxbook",
     leads: store.leadsFor(store.data.lastCountry || ""),
-    status: engine.snapshot()
+    status: engine.snapshot(),
+    proxy: store.data.proxy || ""
   }));
 
   ipcMain.handle("leads-for", (_event, country) => {
@@ -68,7 +70,26 @@ app.whenReady().then(() => {
     return store.leadsFor(country);
   });
 
-  ipcMain.handle("start", (_event, payload) => engine.start(payload || {}));
+  ipcMain.handle("start", (_event, payload) => {
+    const body = payload || {};
+    if (Object.prototype.hasOwnProperty.call(body, "proxy")) store.setProxy(body.proxy);
+    return engine.start(body);
+  });
+
+  ipcMain.handle("save-proxy", (_event, value) => {
+    store.setProxy(value);
+    return { ok: true };
+  });
+
+  ipcMain.handle("check-proxy", async (_event, value) => {
+    store.setProxy(value);
+    try {
+      const ip = await checkExitIp(value);
+      return { ok: true, message: `Прокси работает. Внешний IP: ${ip}` };
+    } catch (error) {
+      return { ok: false, message: error && error.message ? error.message : "Прокси недоступен" };
+    }
+  });
 
   ipcMain.handle("stop", () => {
     engine.stop();

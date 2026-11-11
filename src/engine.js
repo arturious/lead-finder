@@ -1,6 +1,7 @@
 const { createBrowser } = require("./browser");
 const { getSource } = require("./sources");
 const { politeDelayMs, backoffMinutes } = require("./pacing");
+const { assertProxyReachable } = require("./proxy");
 
 function createEngine({ store, profileDir, emit }) {
   let stopRequested = false;
@@ -108,7 +109,10 @@ function createEngine({ store, profileDir, emit }) {
         continue;
       }
       if (result.blocked || result.timeout) {
-        const why = result.status ? `Ответ ${result.status}` : "Таймаут";
+        let why = result.status ? `Ответ ${result.status}` : "Таймаут";
+        if (!result.status && !String(store.data.proxy || "").trim()) {
+          why += ". Сайт не открылся — укажите прокси socks5://host:port, если Myfxbook недоступен из вашей страны";
+        }
         await backoff(why);
         continue;
       }
@@ -184,13 +188,26 @@ function createEngine({ store, profileDir, emit }) {
     emitStatus();
     emit("leads", store.leadsFor(country));
 
-    browser = createBrowser({
-      userDataDir: profileDir,
-      entryUrl: source.entryUrl,
-      onProgress: noteProgress
-    });
-
+    const proxy = String(store.data.proxy || "").trim();
     try {
+      if (proxy) {
+        stats.message = "Проверяю прокси…";
+        emitStatus();
+        await assertProxyReachable(proxy);
+        if (stopRequested) {
+          const error = new Error("stopped");
+          error.code = "STOP";
+          throw error;
+        }
+        stats.message = "Запуск Chrome…";
+        emitStatus();
+      }
+      browser = createBrowser({
+        userDataDir: profileDir,
+        entryUrl: source.entryUrl,
+        onProgress: noteProgress,
+        proxy
+      });
       await browser.open();
       if (stopRequested) {
         const error = new Error("stopped");

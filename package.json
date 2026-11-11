@@ -8,10 +8,15 @@
   "scripts": {
     "start": "node scripts/start.js",
     "test": "node --test test/*.js",
+    "postinstall": "node scripts/repair-electron.js",
     "build": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --arm64"
   },
+  "allowScripts": {
+    "electron@33.4.11": true
+  },
   "dependencies": {
-    "patchright": "1.64.3"
+    "patchright": "1.64.3",
+    "socks": "2.8.10"
   },
   "devDependencies": {
     "electron": "33.4.11",

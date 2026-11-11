@@ -7,7 +7,9 @@ const ui = {
   start: $("start"),
   rows: $("rows"),
   empty: $("empty"),
-  statusLine: $("status-line")
+  statusLine: $("status-line"),
+  proxyInput: $("proxy-input"),
+  proxyNote: $("proxy-note")
 };
 
 const state = {
@@ -177,7 +179,11 @@ ui.start.addEventListener("click", async () => {
   try {
     if (state.running) await window.leadfinder.stop();
     else {
-      await window.leadfinder.start({ siteId: ui.site.value, country: state.country });
+      await window.leadfinder.start({
+        siteId: ui.site.value,
+        country: state.country,
+        proxy: ui.proxyInput.value
+      });
     }
   } catch (error) {
     ui.statusLine.textContent = error && error.message ? error.message : "Не удалось запустить поиск";
@@ -194,6 +200,24 @@ async function exportFile(kind) {
     ui.statusLine.className = "error";
   }
 }
+
+ui.proxyInput.addEventListener("change", () => {
+  window.leadfinder.saveProxy(ui.proxyInput.value);
+  if (state.running) ui.proxyNote.textContent = "Применится при следующем запуске.";
+});
+
+$("proxy-check").addEventListener("click", async () => {
+  ui.proxyNote.textContent = "Проверяю…";
+  ui.proxyNote.className = "note";
+  try {
+    const result = await window.leadfinder.checkProxy(ui.proxyInput.value);
+    ui.proxyNote.textContent = result && result.message ? result.message : "";
+    ui.proxyNote.className = result && result.ok ? "note ok" : "note error";
+  } catch (error) {
+    ui.proxyNote.textContent = error && error.message ? error.message : "Прокси недоступен";
+    ui.proxyNote.className = "note error";
+  }
+});
 
 $("export-csv").addEventListener("click", () => exportFile("csv"));
 $("export-xlsx").addEventListener("click", () => exportFile("xlsx"));
@@ -218,6 +242,7 @@ window.leadfinder.bootstrap().then((data) => {
     ui.countryInput.value = data.lastCountry;
   }
   replaceLeads(data.leads || []);
+  if (data.proxy) ui.proxyInput.value = data.proxy;
   setStatus(data.status || {});
 }).catch((error) => {
   ui.statusLine.textContent = error && error.message ? error.message : "Окно не связалось с приложением";
