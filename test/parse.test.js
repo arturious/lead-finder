@@ -4,6 +4,7 @@ const {
   parseContestRows,
   parseForumItems,
   parseSystemsUsernames,
+  parseSystemsRows,
   parseProfile,
   parseTotal,
   parseContestIds,
@@ -18,7 +19,17 @@ const {
 } = require("../src/parse");
 const { contestPageUrl, systemsPageUrl, SYSTEMS_DAYS, run, eachProfile } = require("../src/sources/myfxbook");
 const { leadsToCsv, leadsToXlsx } = require("../src/export");
-const { politeDelayMs, backoffMinutes, cooldownMs, profileSlotsAfter } = require("../src/pacing");
+const {
+  createPace,
+  paceDelayMs,
+  paceOnSuccess,
+  paceOnLimit,
+  isPressureStatus,
+  backoffMinutes,
+  cooldownMs,
+  GAP_FLOOR_MS,
+  GAP_START_MS
+} = require("../src/pacing");
 const { createStore } = require("../src/store");
 const fs = require("fs");
 const os = require("os");
@@ -59,7 +70,8 @@ test("contest rows carry country, stats and the online flag", () => {
     pips: "-30.0",
     trades: "6",
     trading: "Manual",
-    online: true
+    online: true,
+    experience: ""
   });
   assert.equal(rows[1].online, false);
   assert.equal(rows[1].country, "Germany");
@@ -90,7 +102,7 @@ test("forum items keep the post time and skip reserved paths", () => {
   const html = "<table><tr><td><a href=\"/members/getting\">getting</a> said 2 hours ago</td></tr>"
     + "<tr><td><a href=\"/members/login\">nope</a></td></tr></table>";
   const items = parseForumItems(html);
-  assert.deepEqual(items, [{ username: "getting", recency: "2 hours ago" }]);
+  assert.deepEqual(items, [{ username: "getting", recency: "2 hours ago", country: "", experience: "" }]);
   assert.ok(agoDays("2 hours ago") < 1);
   assert.equal(agoDays("40 days ago") > 30, true);
   assert.equal(agoDays(""), null);
@@ -101,6 +113,11 @@ test("systems links and paging urls", () => {
     '<a href="https://www.myfxbook.com/members/alpha">a</a><a href="/members/alpha">dup</a><a href="/members/systems">no</a>'
   );
   assert.deepEqual(users, ["alpha"]);
+  const rows = parseSystemsRows(
+    '<tr><td><a href="/members/alpha/sys/1">a</a></td><td><span class="flag-icon-de" title="Germany"></span> Less than a year</td></tr>'
+  );
+  assert.equal(rows[0].country, "Germany");
+  assert.match(rows[0].experience, /less than a year/i);
   assert.match(contestPageUrl(51, 2), /pt=24&p=2&id=51&size=&sb=45&st=1/);
   const systems = systemsPageUrl(3);
   assert.match(systems, /pt=6/);
@@ -146,13 +163,26 @@ test("contest index and cloudflare pages", () => {
   assert.equal(isChallengeHtml("<h1>Sorry, you have been blocked</h1> Just a moment challenge-platform", ""), false);
 });
 
-test("pacing stays slow and backs off in minutes", () => {
-  assert.equal(politeDelayMs(() => 0), 800);
-  assert.equal(politeDelayMs(() => 0.9995), 1500);
-  assert.equal(profileSlotsAfter(2, 403), 1);
-  assert.equal(profileSlotsAfter(2, 429), 1);
-  assert.equal(profileSlotsAfter(2, 500), 2);
-  assert.equal(profileSlotsAfter(1, 200), 1);
+test("pacing speeds up after a streak and only parks on repeated 429s", () => {
+  const pace = createPace();
+  assert.equal(pace.gapMs, GAP_START_MS);
+  assert.equal(pace.slots, 2);
+  assert.equal(paceDelayMs(pace, () => 0), Math.round(GAP_START_MS * 0.85));
+  for (let i = 0; i < 30; i++) paceOnSuccess(pace);
+  assert.equal(pace.gapMs, GAP_FLOOR_MS);
+  assert.equal(pace.slots, 3);
+  assert.equal(isPressureStatus(429), true);
+  assert.equal(isPressureStatus(503), true);
+  assert.equal(isPressureStatus(403), false);
+  const once = paceOnLimit(pace, { status: 429, retryAfter: "8" });
+  assert.equal(once.longBackoff, false);
+  assert.equal(once.slots, 2);
+  assert.equal(once.waitMs, 8000);
+  assert.equal(paceOnLimit(pace, { status: 429 }).longBackoff, false);
+  const third = paceOnLimit(pace, { status: 429 });
+  assert.equal(third.longBackoff, true);
+  assert.equal(third.slots, 1);
+  assert.equal(paceOnLimit(createPace(), { status: 503 }).longBackoff, false);
   assert.equal(backoffMinutes(0), 1);
   assert.equal(backoffMinutes(1), 2);
   assert.equal(backoffMinutes(4), 16);
@@ -194,6 +224,14 @@ test("store remembers checked names and leads per country", () => {
   const store = createStore(file);
   store.markChecked("Other", { country: "Germany" });
   assert.equal(store.isChecked("other"), true);
+  assert.equal(store.shouldRecheck("other"), false);
+  const stale = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
+  store.markChecked("quiet", { country: "Thailand", noContacts: true, checkedAt: stale });
+  assert.equal(store.shouldRecheck("quiet"), true);
+  store.markChecked("quiet", { country: "Thailand", noContacts: true });
+  assert.equal(store.shouldRecheck("quiet"), false);
+  store.markChecked("talky", { country: "Thailand", noContacts: false, checkedAt: stale });
+  assert.equal(store.shouldRecheck("talky"), false);
   assert.equal(store.upsertLead({
     username: "save2009",
     country: "Bangkok, Thailand",
@@ -374,6 +412,48 @@ test("a profile below the experience minimum is checked and not saved", async ()
   await run(ctx);
   assert.equal(checked.has("thaiuser"), true);
   assert.equal(leads.length, 0);
+});
+
+test("a list row that already fails experience is not opened", async () => {
+  const calls = [];
+  const checked = new Set();
+  let stop = false;
+  const ctx = {
+    country: "Thailand",
+    minExperience: () => "More than 5 years",
+    stopped: () => stop,
+    async request(url) {
+      calls.push(url);
+      if (url.endsWith("/contests")) {
+        return { status: 200, text: '<div>Live now <a href="/contests/now-3">current</a></div>' };
+      }
+      if (url.includes("id=3")) {
+        return {
+          status: 200,
+          text: `<input id="totalResultsCount" value="1" />
+            <tr class="contests-page"><td></td><td></td><td></td><td>$1</td><td>2%</td><td>3%</td><td>4</td><td>5</td><td>Less than a year</td>
+            <td><a href="https://www.myfxbook.com/members/thaiuser/s/1">t</a></td>
+            <td><span class="flag-icon-th" title="Thailand"></span></td></tr>`
+        };
+      }
+      stop = true;
+      return { status: 200, text: "" };
+    },
+    async sleep() { stop = true; },
+    isChecked: (username) => checked.has(username.toLowerCase()),
+    shouldRecheck: () => false,
+    hasLead: () => false,
+    markChecked: (username) => checked.add(username.toLowerCase()),
+    noteProfile() {},
+    addLead() { throw new Error("should not save"); },
+    setSource() {},
+    setPhase() {},
+    loadCursors: () => null,
+    saveCursors() {}
+  };
+  await run(ctx);
+  assert.equal(checked.has("thaiuser"), true);
+  assert.equal(calls.some((url) => url.includes("/members/thaiuser")), false);
 });
 
 test("profile fetches run two at a time until the slot count drops", async () => {

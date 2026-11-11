@@ -2,6 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const { countryMatches } = require("./parse");
 
+const RECHECK_MS = 3 * 24 * 60 * 60 * 1000;
+
 function emptyData() {
   return { checked: {}, leads: [], cursors: {}, lastCountry: "", lastSite: "myfxbook", proxy: "", minExperience: "" };
 }
@@ -47,11 +49,20 @@ function createStore(file) {
     markChecked(username, info) {
       const key = String(username || "").toLowerCase();
       if (!key) return;
+      const prev = data.checked[key] || {};
       data.checked[key] = {
-        country: (info && info.country) || "",
-        at: new Date().toISOString()
+        country: (info && info.country) || prev.country || "",
+        checkedAt: (info && info.checkedAt) || new Date().toISOString(),
+        noContacts: Boolean(info && info.noContacts)
       };
       scheduleSave();
+    },
+    shouldRecheck(username, now = Date.now()) {
+      const row = data.checked[String(username || "").toLowerCase()];
+      if (!row || !row.noContacts) return false;
+      const at = Date.parse(row.checkedAt || row.at || "");
+      if (!Number.isFinite(at)) return true;
+      return now - at >= RECHECK_MS;
     },
     hasLead(username) {
       const key = String(username || "").toLowerCase();
@@ -129,4 +140,4 @@ function load(file) {
   }
 }
 
-module.exports = { createStore };
+module.exports = { createStore, RECHECK_MS };

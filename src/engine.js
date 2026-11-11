@@ -1,6 +1,6 @@
 const { createBrowser, shouldReuseBrowser } = require("./browser");
 const { getSource } = require("./sources");
-const { politeDelayMs, backoffMinutes, profileSlotsAfter } = require("./pacing");
+const { createPace, paceDelayMs, paceOnSuccess, paceOnLimit, paceOnSoft, isPressureStatus, backoffMinutes } = require("./pacing");
 const { assertProxyReachable } = require("./proxy");
 
 function createEngine({ store, profileDir, emit }) {
@@ -10,7 +10,7 @@ function createEngine({ store, profileDir, emit }) {
   let launchedProxy = null;
   let browserOpening = null;
   let shuttingDown = false;
-  let profileSlots = 2;
+  let pace = createPace();
   let backoffTask = null;
   let challengeTask = null;
   const wakes = new Set();
@@ -101,7 +101,7 @@ function createEngine({ store, profileDir, emit }) {
 
   async function request(url, options) {
     while (!stopRequested) {
-      await sleep(politeDelayMs());
+      await sleep(paceDelayMs(pace));
       if (stopRequested) break;
       if (!browser || !browser.isOpen()) {
         try {
@@ -146,14 +146,32 @@ function createEngine({ store, profileDir, emit }) {
         continue;
       }
       if (result.blocked || result.timeout) {
-        profileSlots = profileSlotsAfter(profileSlots, result.status);
+        if (isPressureStatus(result.status)) {
+          const decision = paceOnLimit(pace, { status: result.status, retryAfter: result.retryAfter });
+          if (decision.longBackoff) {
+            await backoff(`Ответ ${result.status}`);
+          } else {
+            stats.phase = "running";
+            stats.blocked = false;
+            stats.message = `Ответ ${result.status}. Пауза ${Math.ceil(decision.waitMs / 1000)} с`;
+            emitStatus();
+            await sleep(decision.waitMs);
+          }
+          continue;
+        }
+        const waitMs = paceOnSoft(pace);
         let why = result.status ? `Ответ ${result.status}` : "Таймаут";
         if (!result.status && !String(store.data.proxy || "").trim()) {
           why += ". Сайт не открылся — укажите прокси socks5://host:port, если Myfxbook недоступен из вашей страны";
         }
-        await backoff(why);
+        stats.phase = "running";
+        stats.blocked = false;
+        stats.message = `${why}. Пауза ${Math.ceil(waitMs / 1000)} с`;
+        emitStatus();
+        await sleep(waitMs);
         continue;
       }
+      paceOnSuccess(pace);
       stats.backoffStep = 0;
       stats.blocked = false;
       return result;
@@ -168,7 +186,8 @@ function createEngine({ store, profileDir, emit }) {
       country,
       stopped: () => stopRequested,
       request,
-      profileSlots: () => profileSlots,
+      profileSlots: () => pace.slots,
+      shouldRecheck: (username) => store.shouldRecheck(username),
       sleep,
       isChecked: (username) => store.isChecked(username),
       hasLead: (username) => store.hasLead(username),
@@ -296,7 +315,7 @@ function createEngine({ store, profileDir, emit }) {
     stats.progress = null;
     stats.blocked = false;
     stats.backoffStep = 0;
-    profileSlots = 2;
+    pace = createPace();
     stats.country = country;
     stats.siteId = siteId;
     stats.phase = "running";
@@ -351,4 +370,4 @@ function createEngine({ store, profileDir, emit }) {
   return { start, stop, snapshot, showBrowser, warm, useProxy, shutdown };
 }
 
-module.exports = { createEngine, backoffMinutes, politeDelayMs };
+module.exports = { createEngine, backoffMinutes };

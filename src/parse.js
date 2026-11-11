@@ -70,6 +70,17 @@ function parseLiveContestId(html, ids) {
   return ids && ids.length ? ids[ids.length - 1] : null;
 }
 
+function listCountry(html) {
+  const flag = String(html || "").match(/flag-icon-[a-z]{2}[^>]*title="([^"]+)"/i)
+    || String(html || "").match(/title="([^"]+)"[^>]*flag-icon-[a-z]{2}/i);
+  return flag ? decodeEntities(flag[1]).trim() : "";
+}
+
+function listExperience(text) {
+  const match = String(text || "").match(/more than 5 years|3\s*-\s*5 years|1\s*-\s*3 years|less than (?:a|1) year/i);
+  return match ? match[0].replace(/\s+/g, " ").trim() : "";
+}
+
 function parseContestRows(html) {
   const rows = [];
   const rowRe = /<tr class="contests-page[^"]*">([\s\S]*?)<\/tr>/gi;
@@ -99,7 +110,8 @@ function parseContestRows(html) {
       pips: text[6] || "",
       trades: text[7] || "",
       trading: text[8] || "",
-      online: /onlineModern/.test(tr)
+      online: /onlineModern/.test(tr),
+      experience: listExperience(text.join(" "))
     });
   }
   return rows;
@@ -116,24 +128,38 @@ function parseForumItems(html) {
     seen.add(key);
     const text = stripTags(part);
     const when = text.match(/(\d+\s+\w+\s+ago|[A-Z][a-z]{2} \d{2}(?:, \d{4})? at)/);
-    out.push({ username: user[1], recency: when ? when[1] : "" });
+    out.push({
+      username: user[1],
+      recency: when ? when[1] : "",
+      country: listCountry(part),
+      experience: listExperience(text)
+    });
+  }
+  return out;
+}
+
+function parseSystemsRows(html) {
+  const text = String(html || "");
+  const parts = /<tr[\s>]/i.test(text) ? text.split(/<tr/i).slice(1) : [text];
+  const out = [];
+  const seen = new Set();
+  for (const part of parts) {
+    const user = part.match(/\/members\/([A-Za-z0-9_.-]+)/);
+    if (!user || !validUser(user[1])) continue;
+    const key = user[1].toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      username: user[1],
+      country: listCountry(part),
+      experience: listExperience(stripTags(part))
+    });
   }
   return out;
 }
 
 function parseSystemsUsernames(html) {
-  const out = [];
-  const seen = new Set();
-  const re = /href="(?:https:\/\/www\.myfxbook\.com)?\/members\/([A-Za-z0-9_.-]+)"/gi;
-  let m;
-  while ((m = re.exec(String(html || "")))) {
-    if (!validUser(m[1])) continue;
-    const key = m[1].toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(m[1]);
-  }
-  return out;
+  return parseSystemsRows(html).map((row) => row.username);
 }
 
 function fieldValue(html, label) {
@@ -269,6 +295,7 @@ module.exports = {
   parseContestRows,
   parseForumItems,
   parseSystemsUsernames,
+  parseSystemsRows,
   parseProfile,
   EXPERIENCE_LEVELS,
   experienceRank,

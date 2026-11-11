@@ -11,7 +11,7 @@ const {
   parseLiveContestId,
   parseContestRows,
   parseForumItems,
-  parseSystemsUsernames,
+  parseSystemsRows,
   parseProfile,
   meetsExperience,
   agoDays,
@@ -129,8 +129,8 @@ function slotsNow(ctx) {
   return n >= 1 ? n : 1;
 }
 
-// Up to two profile fetches at once. The width is read again after each
-// finish, so a 403/429 that drops the engine to one slot sticks.
+// As many profile fetches as the current pace allows. The width is read
+// again after each finish, so a slowdown takes effect on the next start.
 function eachProfile(ctx, items, fn) {
   const list = items || [];
   let next = 0;
@@ -175,9 +175,14 @@ function eachProfile(ctx, items, fn) {
   });
 }
 
+function minimumOf(ctx) {
+  return typeof ctx.minExperience === "function" ? ctx.minExperience() : "";
+}
+
 async function consider(ctx, item) {
   const key = item.username.toLowerCase();
-  if (ctx.isChecked(key)) {
+  const recheck = typeof ctx.shouldRecheck === "function" && ctx.shouldRecheck(key);
+  if (ctx.isChecked(key) && !recheck) {
     if (ctx.hasLead(item.username)) {
       ctx.addLead(leadFrom(
         item.username,
@@ -193,8 +198,13 @@ async function consider(ctx, item) {
     return;
   }
 
+  // The list already knows this trader cannot pass. Skip the profile page.
   if (item.country && !countryMatches(item.country, ctx.country)) {
     ctx.markChecked(item.username, { country: item.country });
+    return;
+  }
+  if (item.experience && !meetsExperience(item.experience, minimumOf(ctx))) {
+    ctx.markChecked(item.username, { country: item.country || "" });
     return;
   }
 
@@ -202,21 +212,19 @@ async function consider(ctx, item) {
   const res = await ctx.request(profileUrl(item.username));
   const profile = res.status === 200 ? parseProfile(res.text) : null;
   const location = (profile && profile.location) || item.country || "";
-
-  const minimum = typeof ctx.minExperience === "function" ? ctx.minExperience() : "";
-  const experienced = meetsExperience(profile && profile.experience, minimum);
+  const contacts = (profile && profile.contacts) || "";
+  const experienced = meetsExperience(profile && profile.experience, minimumOf(ctx));
+  const lead = leadFrom(item.username, location, item.source, item.kind, item.recency, item.online, profile, item.stats);
 
   if (item.country) {
-    if (experienced) {
-      ctx.addLead(leadFrom(item.username, item.country, item.source, item.kind, item.recency, item.online, profile, item.stats));
-    }
-    ctx.markChecked(item.username, { country: item.country });
+    if (experienced) ctx.addLead(lead);
+    ctx.markChecked(item.username, { country: item.country, noContacts: profile ? !contacts : false });
     return;
   }
 
-  ctx.markChecked(item.username, { country: location });
+  ctx.markChecked(item.username, { country: location, noContacts: profile ? !contacts : false });
   if (!countryMatches(location, ctx.country) || !experienced) return;
-  ctx.addLead(leadFrom(item.username, location, item.source, item.kind, item.recency, item.online, profile, item.stats));
+  ctx.addLead(lead);
 }
 
 async function loadContestPage(ctx, contestId, page, cache) {
@@ -262,6 +270,7 @@ async function readContestSlice(ctx, contestId, cursor, sourceLabel) {
     await eachProfile(ctx, rows, (row) => consider(ctx, {
       username: row.username,
       country: row.country,
+      experience: row.experience || "",
       source: `contest:${contestId}`,
       kind: "contest",
       recency: row.online ? "online" : "",
@@ -368,7 +377,8 @@ async function stepForum(ctx, state) {
   });
   await eachProfile(ctx, fresh, (item) => consider(ctx, {
     username: item.username,
-    country: null,
+    country: item.country || null,
+    experience: item.experience || "",
     source: "forum",
     kind: "forum",
     recency: item.recency,
@@ -386,14 +396,15 @@ async function stepSystems(ctx, state) {
   const page = state.systemsPage;
   ctx.setSource(`системы, стр. ${page}`);
   const res = await ctx.request(systemsPageUrl(page), { xhr: true });
-  const users = res.status === 200 ? parseSystemsUsernames(res.text) : [];
-  if (!users.length) {
+  const rows = res.status === 200 ? parseSystemsRows(res.text) : [];
+  if (!rows.length) {
     state.systemsDone = true;
     return;
   }
-  await eachProfile(ctx, users, (username) => consider(ctx, {
-    username,
-    country: null,
+  await eachProfile(ctx, rows, (row) => consider(ctx, {
+    username: row.username,
+    country: row.country || null,
+    experience: row.experience || "",
     source: "systems",
     kind: "systems",
     recency: `traded<${SYSTEMS_DAYS}d`,

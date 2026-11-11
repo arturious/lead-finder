@@ -351,7 +351,7 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
       const headers = { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" };
       if (useXhr) headers["X-Requested-With"] = "XMLHttpRequest";
       return fetch(targetUrl, { credentials: "include", redirect: "follow", signal: ctrl.signal, headers })
-        .then(async (res) => ({ status: res.status, text: await res.text() }))
+        .then(async (res) => ({ status: res.status, text: await res.text(), retryAfter: res.headers.get("retry-after") || "" }))
         .catch((error) => ({ error: String(error && error.name || error), message: String(error && error.message || error) }))
         .finally(() => clearTimeout(timer));
     })()`;
@@ -365,12 +365,13 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
     }
 
     if (!result || result.error) return { timeout: true, error: result && result.message };
-    if (isHardBlockHtml(result.text)) return { blocked: true, status: result.status, text: result.text };
-    if (isChallengeHtml(result.text)) return { challenge: true, status: result.status, text: result.text };
+    const retryAfter = result.retryAfter || "";
+    if (isHardBlockHtml(result.text)) return { blocked: true, status: result.status, text: result.text, retryAfter };
+    if (isChallengeHtml(result.text)) return { challenge: true, status: result.status, text: result.text, retryAfter };
     if (result.status === 403 || result.status === 429 || result.status === 408 || result.status >= 500) {
-      return { blocked: true, status: result.status, text: result.text };
+      return { blocked: true, status: result.status, text: result.text, retryAfter };
     }
-    return { status: result.status, text: result.text };
+    return { status: result.status, text: result.text, retryAfter };
   }
 
   async function showForChallenge(shouldStop) {
