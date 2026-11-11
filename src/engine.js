@@ -1,4 +1,5 @@
 const { createBrowser, shouldReuseBrowser } = require("./browser");
+const { createHttpClient, freshHttpState, httpFallbackState } = require("./http");
 const { getSource } = require("./sources");
 const { createPace, paceDelayMs, paceOnSuccess, paceOnLimit, paceOnSoft, isPressureStatus, backoffMinutes } = require("./pacing");
 const { assertProxyReachable } = require("./proxy");
@@ -11,6 +12,8 @@ function createEngine({ store, profileDir, emit }) {
   let browserOpening = null;
   let shuttingDown = false;
   let pace = createPace();
+  let httpState = freshHttpState();
+  let httpClient = null;
   let backoffTask = null;
   let challengeTask = null;
   const wakes = new Set();
@@ -90,13 +93,52 @@ function createEngine({ store, profileDir, emit }) {
     return backoffTask;
   }
 
-  function clearChallenge() {
+  function clearChallenge(url) {
     if (!challengeTask) {
-      challengeTask = browser.showForChallenge(() => stopRequested).finally(() => {
+      const run = browser.clearUrl
+        ? browser.clearUrl(url, () => stopRequested)
+        : browser.showForChallenge(() => stopRequested);
+      challengeTask = Promise.resolve(run).finally(() => {
         challengeTask = null;
       });
     }
     return challengeTask;
+  }
+
+  function switchToWindow(reason) {
+    const message = reason === "challenge"
+      ? "Быстрые запросы не проходят Cloudflare, продолжаю в окне."
+      : "Быстрые запросы недоступны, продолжаю в окне.";
+    stats.message = message;
+    emitStatus();
+  }
+
+  function httpClientFor(current) {
+    if (!httpClient) {
+      httpClient = createHttpClient({
+        cookieHeader: (url) => current.cookieHeader(url),
+        setCookie: (line, url) => current.writeCookie(line, url),
+        userAgent: () => current.userAgent(),
+        acceptLanguage: () => current.acceptLanguage(),
+        proxyUrl: () => current.proxyUrl()
+      });
+    }
+    return httpClient;
+  }
+
+  async function fetchPage(url, options) {
+    if (httpState.mode === "window" || !browser.cookieHeader) return browser.fetch(url, options);
+    try {
+      return await httpClientFor(browser).fetch(url, options);
+    } catch (error) {
+      const event = error && error.code === "IMPIT_LOAD" ? "load-failed" : "client-error";
+      const next = httpFallbackState(httpState, event);
+      const switched = next.switched;
+      httpState = next;
+      if (switched) switchToWindow(next.reason);
+      if (httpState.mode === "window") return browser.fetch(url, options);
+      return { timeout: true, error: error && error.message ? error.message : String(error) };
+    }
   }
 
   async function request(url, options) {
@@ -118,7 +160,7 @@ function createEngine({ store, profileDir, emit }) {
       emitStatus();
       let result;
       try {
-        result = await browser.fetch(url, options || {});
+        result = await fetchPage(url, options || {});
       } catch (error) {
         if (stopRequested) break;
         await backoff("Таймаут или обрыв");
@@ -134,14 +176,20 @@ function createEngine({ store, profileDir, emit }) {
         continue;
       }
       if (result.challenge) {
+        const next = httpFallbackState(httpState, "challenge");
+        const switched = next.switched;
+        httpState = next;
+        if (switched) switchToWindow(next.reason);
         stats.phase = "challenge";
         stats.blocked = true;
         emitStatus();
-        const cleared = await clearChallenge();
+        const cleared = await clearChallenge(url);
         stats.blocked = false;
         if (stopRequested) break;
         if (!cleared) {
           await backoff("Проверка Cloudflare не пройдена");
+        } else if (httpState.mode === "http") {
+          httpState = httpFallbackState(httpState, "cleared");
         }
         continue;
       }
@@ -171,6 +219,7 @@ function createEngine({ store, profileDir, emit }) {
         await sleep(waitMs);
         continue;
       }
+      httpState = httpFallbackState(httpState, "ok");
       paceOnSuccess(pace);
       stats.backoffStep = 0;
       stats.blocked = false;
@@ -235,6 +284,7 @@ function createEngine({ store, profileDir, emit }) {
   async function relaunch(proxy) {
     const previous = browser;
     browser = null;
+    httpClient = null;
     if (previous) await previous.close().catch(() => {});
     if (shuttingDown) return;
     if (proxy) await assertProxyReachable(proxy);
@@ -316,6 +366,8 @@ function createEngine({ store, profileDir, emit }) {
     stats.blocked = false;
     stats.backoffStep = 0;
     pace = createPace();
+    httpState = freshHttpState();
+    httpClient = null;
     stats.country = country;
     stats.siteId = siteId;
     stats.phase = "running";

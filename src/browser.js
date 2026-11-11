@@ -1,5 +1,6 @@
 const { isChallengeHtml, isHardBlockHtml } = require("./parse");
 const { prepareChromeProxy } = require("./proxy");
+const { parseSetCookie, proxyUrlForImpit } = require("./http");
 
 const BLOCKED_TYPES = new Set(["image", "media", "font"]);
 const CHALLENGE_RELOAD_MS = 3000;
@@ -148,6 +149,8 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
   let allowDestroy = false;
   const discarding = new WeakSet();
   let siteChain = Promise.resolve();
+  let pageUa = "";
+  let httpProxyUrl = "";
 
   function report(update) {
     if (onProgress) onProgress(update);
@@ -191,6 +194,7 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
       proxyAuthByContents.delete(page.id);
     }
     await page.session.setProxy(sessionProxySettings(prepared));
+    httpProxyUrl = proxyUrlForImpit(prepared);
   }
 
   async function open() {
@@ -214,6 +218,7 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
         });
         created.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
         const ua = chromeUserAgent(created.webContents.getUserAgent(), app.getName());
+        pageUa = ua;
         created.webContents.setUserAgent(ua);
         await created.webContents.session.setUserAgent(ua, ACCEPT_LANGUAGE);
         blockHeavy(created.webContents.session);
@@ -396,13 +401,62 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
     return cleared;
   }
 
+  function sessionOf() {
+    const page = contents();
+    return page ? page.session : null;
+  }
+
+  async function cookieHeader(url) {
+    const ses = sessionOf();
+    if (!ses) return "";
+    const list = await ses.cookies.get({ url });
+    return list.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  }
+
+  async function writeCookie(line, url) {
+    const ses = sessionOf();
+    if (!ses) return;
+    const details = parseSetCookie(line, url);
+    if (!details) return;
+    await ses.cookies.set(details).catch(() => {});
+  }
+
+  async function clearUrl(url, shouldStop) {
+    const target = contents();
+    if (!isOpen() || !target) return false;
+    if (shouldStop && shouldStop()) return false;
+    let current = "";
+    try { current = target.getURL(); } catch { current = ""; }
+    if (url && current !== url) {
+      const pending = waitForClearOrLoad(target, shouldStop);
+      try { await target.loadURL(url); } catch { /* did-fail-load settles the wait */ }
+      await pending;
+    }
+    if (shouldStop && shouldStop()) return false;
+    if (!(await pageLooksChallenged(target))) return true;
+    return showForChallenge(shouldStop);
+  }
+
   function showWindow() {
     if (!win || win.isDestroyed()) return false;
     win.show();
     return true;
   }
 
-  return { open, close, fetch, showForChallenge, showWindow, isOpen };
+  return {
+    open,
+    close,
+    fetch,
+    showForChallenge,
+    clearUrl,
+    showWindow,
+    isOpen,
+    cookieHeader,
+    writeCookie,
+    userAgent: () => pageUa,
+    acceptLanguage: () => ACCEPT_LANGUAGE,
+    proxyUrl: () => httpProxyUrl
+  };
 }
 
 module.exports = {
