@@ -7,6 +7,7 @@ const {
   normalizeHttpEngine,
   engineMode,
   fallbackEngine,
+  camoufoxSlots,
   parseSidecarLine,
   toFetchResult,
   locateCamoufox,
@@ -47,6 +48,51 @@ test("sidecar lines become the same fetch result the engine already uses", () =>
   assert.equal(limited.blocked, true);
   const broken = toFetchResult(parseSidecarLine('{"id":4,"status":0,"html":"","ms":5,"error":"timeout"}'));
   assert.equal(broken.timeout, true);
+});
+
+test("camoufox stays at two fetches even when the pace opens a third slot", () => {
+  assert.equal(camoufoxSlots(1), 1);
+  assert.equal(camoufoxSlots(2), 2);
+  assert.equal(camoufoxSlots(3), 2);
+  assert.equal(camoufoxSlots(0), 1);
+});
+
+test("camoufox reuses two pages, polls challenges cheaply, and recycles on size or memory", () => {
+  const py = spawnSync("python3", ["-c", `
+import sys
+sys.path.insert(0, sys.argv[1])
+import camoufox_server as s
+assert s.MAX_PAGES == 2
+assert s.RECYCLE_PAGES == 300
+limit = s.RSS_LIMIT_BYTES
+assert s.needs_recycle(299, 0) is False
+assert s.needs_recycle(300, 0, True) is True
+assert s.needs_recycle(0, limit + 1) is False
+assert s.needs_recycle(1, limit) is False
+assert s.needs_recycle(1, limit + 1) is True
+assert s.needs_recycle(1, limit + 1, True) is False
+assert s.probe_waiting({"title": "Just a moment...", "challenge": False, "chars": 10}) is True
+assert s.probe_waiting({"title": "Attention Required! | Cloudflare", "challenge": False, "chars": 0}) is True
+assert s.probe_waiting({"title": "", "challenge": True, "chars": 5}) is True
+assert s.probe_waiting({"title": "", "challenge": False, "chars": 0}) is True
+assert s.probe_waiting({"title": "Forex Contests", "challenge": False, "chars": 200}) is False
+assert s.probe_waiting({"title": "Forex Contests", "challenge": True, "chars": 200}) is False
+assert s.probe_waiting({"title": "Forex Contests", "challenge": False, "chars": 200}, "challenge") is False
+assert s.probe_waiting({"title": "", "challenge": False, "chars": 5}, "challenge") is True
+assert s.CHALLENGE_POLL_MS == 1000
+assert s.FIREFOX_PREFS["layout.frame_rate"] == 10
+assert s.FIREFOX_PREFS["general.smoothScroll"] is False
+assert s.FIREFOX_PREFS["image.animation_mode"] == "none"
+assert s.FIREFOX_PREFS["media.autoplay.default"] == 5
+assert s.FIREFOX_PREFS["browser.cache.memory.capacity"] > 0
+joined = " ".join(s.FIREFOX_PREFS).lower()
+for banned in ("webgl", "canvas", "useragent", "font"):
+    assert banned not in joined, banned
+assert isinstance(s.browser_rss_bytes(), int)
+print("ok")
+`, path.join(__dirname, "..", "sidecar")], { encoding: "utf8" });
+  assert.equal(py.status, 0, py.stderr);
+  assert.equal(py.stdout.trim(), "ok");
 });
 
 test("a normal page that only links challenge-platform is not an interstitial", () => {

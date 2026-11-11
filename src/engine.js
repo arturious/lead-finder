@@ -4,7 +4,7 @@ const { createHttpClient, freshHttpState, httpFallbackState } = require("./http"
 const { getSource } = require("./sources");
 const { createPace, paceDelayMs, paceOnSuccess, paceOnLimit, paceOnSoft, paceKind, backoffMinutes } = require("./pacing");
 const { assertProxyReachable } = require("./proxy");
-const { createCamoufoxClient, locateCamoufox, normalizeHttpEngine, engineMode, fallbackEngine } = require("./camoufox");
+const { createCamoufoxClient, locateCamoufox, normalizeHttpEngine, engineMode, fallbackEngine, camoufoxSlots } = require("./camoufox");
 
 function createEngine({ store, profileDir, emit }) {
   let stopRequested = false;
@@ -121,7 +121,7 @@ function createEngine({ store, profileDir, emit }) {
       proxy: currentProxy(),
       log(line) {
         const text = String(line || "").trim();
-        if (text && /error|traceback|modulenotfound|not supported/i.test(text)) {
+        if (text && /error|traceback|modulenotfound|not supported|recycle/i.test(text)) {
           logLine(`camoufox: ${text.split("\n")[0]}`);
         }
       }
@@ -343,7 +343,7 @@ function createEngine({ store, profileDir, emit }) {
       country,
       stopped: () => stopRequested,
       request,
-      profileSlots: () => pace.slots,
+      profileSlots: () => (httpState.mode === "camoufox" ? camoufoxSlots(pace.slots) : pace.slots),
       shouldRecheck: (username) => store.shouldRecheck(username),
       sleep,
       isChecked: (username) => store.isChecked(username),

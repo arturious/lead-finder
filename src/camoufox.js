@@ -3,6 +3,13 @@ const path = require("path");
 const { spawn } = require("child_process");
 
 const ENGINES = new Set(["camoufox", "window", "impit"]);
+const CAMOUFOX_MAX_SLOTS = 2;
+
+function camoufoxSlots(slots) {
+  const n = Math.floor(Number(slots));
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.min(CAMOUFOX_MAX_SLOTS, n);
+}
 
 function normalizeHttpEngine(value) {
   return ENGINES.has(value) ? value : "camoufox";
@@ -269,6 +276,8 @@ module.exports = {
   normalizeHttpEngine,
   engineMode,
   fallbackEngine,
+  camoufoxSlots,
+  CAMOUFOX_MAX_SLOTS,
   parseSidecarLine,
   toFetchResult,
   locateCamoufox,
