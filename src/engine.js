@@ -104,15 +104,17 @@ function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand
       }, 1000);
       if (timer.unref) timer.unref();
     }
+    // Publish "stopping" before waking the run. The run can finish inside
+    // wake() and emit idle; a status sent after that would stick on screen.
+    if (running && stats.phase !== "error") {
+      stats.phase = "stopping";
+      stats.message = "Останавливаю…";
+      emitStatus();
+    }
     for (const wake of [...wakes]) wake();
     if (camoufox) camoufox.cancel();
     if (browser && typeof browser.abortLoad === "function") {
       try { browser.abortLoad(); } catch { /* the window is already gone */ }
-    }
-    if (stats.phase !== "error") {
-      stats.phase = "stopping";
-      stats.message = "Останавливаю…";
-      emitStatus();
     }
   }
 
@@ -610,7 +612,7 @@ function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand
       stats.progress = null;
       if (stats.phase !== "error") {
         stats.phase = "idle";
-        stats.message = "Остановлено. Найденные лиды сохранены.";
+        stats.message = "";
         stats.source = "";
       }
       store.saveNow();

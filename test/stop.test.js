@@ -11,10 +11,13 @@ test("stop settles a camoufox run within a second while the sidecar and window a
   const mark = path.join(os.tmpdir(), `lf-stop-mark-${Date.now()}`);
   const store = createStore(file);
   let opens = 0;
+  const statuses = [];
   const engine = createEngine({
     store,
     profileDir: os.tmpdir(),
-    emit() {},
+    emit(channel, payload) {
+      if (channel === "status") statuses.push(payload);
+    },
     browserFactory() {
       return {
         open() {
@@ -58,6 +61,10 @@ test("stop settles a camoufox run within a second while the sidecar and window a
     assert.ok(Date.now() - started < 1000);
     assert.equal(opens, 0);
     assert.equal(engine.snapshot().running, false);
+    const last = statuses[statuses.length - 1];
+    assert.equal(last.phase, "idle");
+    assert.equal(last.running, false);
+    assert.equal(last.message, "");
   } finally {
     if (previous == null) delete process.env.HANG_MARK;
     else process.env.HANG_MARK = previous;

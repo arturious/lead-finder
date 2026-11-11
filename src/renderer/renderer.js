@@ -22,7 +22,8 @@ const state = {
 
 function setStatus(status) {
   const activePhase = ["starting", "download", "running", "challenge", "blocked", "cooldown", "stopping"].includes(status.phase);
-  state.running = status.running === false ? false : Boolean(status.running) || activePhase;
+  const finished = status.running === false || status.phase === "idle";
+  state.running = finished ? false : Boolean(status.running) || activePhase;
   $("m-requests").textContent = String(status.requests || 0);
   $("m-profiles").textContent = String(status.profiles || 0);
   $("m-leads").textContent = String(state.running ? (status.leads || 0) : state.leads.size);
@@ -182,7 +183,7 @@ document.addEventListener("click", (event) => {
 ui.start.addEventListener("click", async () => {
   ui.start.disabled = true;
   try {
-    if (state.running) await window.leadfinder.stop();
+    if (state.running) setStatus(await window.leadfinder.stop());
     else {
       await window.leadfinder.start({
         siteId: ui.site.value,
