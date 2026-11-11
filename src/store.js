@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { countryMatches } = require("./parse");
+const { normalizeHttpEngine } = require("./camoufox");
 
 const RECHECK_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -13,7 +14,7 @@ function emptyData() {
     lastSite: "myfxbook",
     proxy: "",
     minExperience: "",
-    httpEngine: "window"
+    httpEngine: "camoufox"
   };
 }
 
@@ -143,7 +144,7 @@ function load(file) {
       checked: parsed.checked || {},
       leads: Array.isArray(parsed.leads) ? parsed.leads : [],
       cursors: parsed.cursors || {},
-      httpEngine: parsed.httpEngine === "impit" ? "impit" : "window"
+      httpEngine: normalizeHttpEngine(parsed.httpEngine)
     };
   } catch {
     return emptyData();

@@ -1,4 +1,5 @@
 node_modules/
 dist/
+.venv-camoufox/
 .DS_Store
 *.log

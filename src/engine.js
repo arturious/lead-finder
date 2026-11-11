@@ -1,8 +1,10 @@
+const path = require("path");
 const { createBrowser, shouldReuseBrowser } = require("./browser");
 const { createHttpClient, freshHttpState, httpFallbackState } = require("./http");
 const { getSource } = require("./sources");
 const { createPace, paceDelayMs, paceOnSuccess, paceOnLimit, paceOnSoft, paceKind, backoffMinutes } = require("./pacing");
 const { assertProxyReachable } = require("./proxy");
+const { createCamoufoxClient, locateCamoufox, normalizeHttpEngine, engineMode, fallbackEngine } = require("./camoufox");
 
 function createEngine({ store, profileDir, emit }) {
   let stopRequested = false;
@@ -14,6 +16,8 @@ function createEngine({ store, profileDir, emit }) {
   let pace = createPace();
   let httpState = freshHttpState();
   let httpClient = null;
+  let camoufox = null;
+  let camoufoxReady = false;
   let settleUntil = 0;
   const CLEAR_SETTLE_MS = 1500;
   let backoffTask = null;
@@ -96,7 +100,50 @@ function createEngine({ store, profileDir, emit }) {
   }
 
   function engineName() {
-    return httpState.mode === "http" ? "impit" : "window";
+    if (httpState.mode === "http") return "impit";
+    if (httpState.mode === "window") return "window";
+    return "camoufox";
+  }
+
+  function camoufoxProfileDir() {
+    return path.join(path.dirname(profileDir), "camoufox-profile");
+  }
+
+  function camoufoxClient() {
+    if (camoufox) return camoufox;
+    const found = locateCamoufox(path.join(__dirname, ".."));
+    if (found.error) return null;
+    camoufox = createCamoufoxClient({
+      command: found.python,
+      args: [found.script],
+      profileDir: camoufoxProfileDir(),
+      proxy: currentProxy(),
+      log(line) {
+        const text = String(line || "").trim();
+        if (text && /error|traceback|modulenotfound|not supported/i.test(text)) {
+          logLine(`camoufox: ${text.split("\n")[0]}`);
+        }
+      }
+    });
+    return camoufox;
+  }
+
+  async function ensureCamoufox() {
+    if (camoufoxReady) return "";
+    const found = locateCamoufox(path.join(__dirname, ".."));
+    if (found.error) return found.error;
+    const client = camoufoxClient();
+    if (!client) return found.error || "camoufox unavailable";
+    try {
+      await client.useProxy(currentProxy());
+      await client.start();
+      camoufoxReady = true;
+      return "";
+    } catch (error) {
+      camoufoxReady = false;
+      await client.close().catch(() => {});
+      return error && error.message ? error.message : String(error);
+    }
   }
 
   function logLine(message) {
@@ -142,7 +189,32 @@ function createEngine({ store, profileDir, emit }) {
   }
 
   async function fetchPage(url, options) {
-    if (httpState.mode === "window" || !browser.cookieHeader) return browser.fetch(url, options);
+    if (httpState.mode === "camoufox") {
+      try {
+        const startError = await ensureCamoufox();
+        if (startError) {
+          logLine(`camoufox unavailable: ${startError}; engine=window`);
+          httpState.mode = "window";
+        } else {
+          return await camoufox.fetch(url);
+        }
+      } catch (error) {
+        const code = error && error.code;
+        if (code === "CAMOUFOX_CLOSED" || code === "CAMOUFOX_TIMEOUT") {
+          return { timeout: true, error: error.message || String(error) };
+        }
+        logLine(`camoufox unavailable: ${error && error.message ? error.message : error}; engine=window`);
+        httpState.mode = "window";
+        camoufoxReady = false;
+      }
+      if (!browser || !browser.isOpen()) {
+        try { await ensureBrowser(); } catch (error) {
+          return { timeout: true, error: error && error.message ? error.message : String(error) };
+        }
+      }
+      return browser.fetch(url, options);
+    }
+    if (httpState.mode === "window" || !browser || !browser.cookieHeader) return browser.fetch(url, options);
     try {
       return await httpClientFor(browser).fetch(url, options);
     } catch (error) {
@@ -162,7 +234,7 @@ function createEngine({ store, profileDir, emit }) {
       if (settleLeft > 0) await sleep(settleLeft);
       await sleep(paceDelayMs(pace));
       if (stopRequested) break;
-      if (!browser || !browser.isOpen()) {
+      if (httpState.mode !== "camoufox" && (!browser || !browser.isOpen())) {
         try {
           await ensureBrowser();
         } catch (error) {
@@ -183,7 +255,7 @@ function createEngine({ store, profileDir, emit }) {
         await backoff("Таймаут или обрыв");
         continue;
       }
-      if (result.closed || (browser && !browser.isOpen())) {
+      if (result.closed || (httpState.mode !== "camoufox" && browser && !browser.isOpen())) {
         try {
           await ensureBrowser();
         } catch (error) {
@@ -192,15 +264,27 @@ function createEngine({ store, profileDir, emit }) {
         }
         continue;
       }
-      if (result.status === 403 || result.status === 429) {
-        logLine(`http ${result.status} challenge=${Boolean(result.challenge)} engine=${engineName()} url=${url}`);
+      if (result.status === 403 || result.status === 429 || httpState.mode === "camoufox") {
+        const ms = result.ms != null ? ` ms=${result.ms}` : "";
+        logLine(`http ${result.status} challenge=${Boolean(result.challenge)} engine=${engineName()}${ms} url=${url}`);
       }
       const kind = paceKind(result);
       if (kind === "clear") {
-        const next = httpFallbackState(httpState, "challenge");
-        const switched = next.switched;
-        httpState = next;
-        if (switched) switchToWindow(next.reason);
+        if (httpState.mode === "http") {
+          const next = httpFallbackState(httpState, "challenge");
+          const switched = next.switched;
+          httpState = next;
+          if (switched) switchToWindow(next.reason);
+        }
+        if (!browser || !browser.isOpen()) {
+          try {
+            await ensureBrowser();
+          } catch (error) {
+            if (stopRequested) break;
+            await backoff(error && error.message ? error.message : "Браузер закрылся");
+            continue;
+          }
+        }
         stats.phase = "challenge";
         stats.blocked = true;
         emitStatus();
@@ -241,7 +325,7 @@ function createEngine({ store, profileDir, emit }) {
         await sleep(waitMs);
         continue;
       }
-      httpState = httpFallbackState(httpState, "ok");
+      if (httpState.mode === "http") httpState = httpFallbackState(httpState, "ok");
       paceOnSuccess(pace);
       stats.backoffStep = 0;
       stats.blocked = false;
@@ -357,6 +441,10 @@ function createEngine({ store, profileDir, emit }) {
   async function useProxy(value) {
     store.setProxy(value);
     if (browser || browserOpening) await ensureBrowser();
+    if (camoufox) {
+      camoufoxReady = false;
+      await camoufox.useProxy(currentProxy()).catch(() => {});
+    }
     return snapshot();
   }
 
@@ -369,6 +457,8 @@ function createEngine({ store, profileDir, emit }) {
     browser = null;
     launchedProxy = null;
     if (current) await current.close().catch(() => {});
+    camoufoxReady = false;
+    if (camoufox) await camoufox.close().catch(() => {});
   }
 
   async function start({ siteId, country }) {
@@ -388,10 +478,14 @@ function createEngine({ store, profileDir, emit }) {
     stats.blocked = false;
     stats.backoffStep = 0;
     pace = createPace();
+    const selected = normalizeHttpEngine(store.data.httpEngine);
+    const startError = selected === "camoufox" ? await ensureCamoufox() : "";
+    const chosen = fallbackEngine(selected, startError);
     httpState = freshHttpState();
-    if (store.data.httpEngine !== "impit") httpState.mode = "window";
+    httpState.mode = engineMode(chosen);
     httpClient = null;
     settleUntil = 0;
+    if (startError) logLine(`camoufox unavailable: ${startError}; engine=window`);
     logLine(`engine ${engineName()}`);
     stats.country = country;
     stats.siteId = siteId;

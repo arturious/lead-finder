@@ -279,13 +279,16 @@ test("store remembers checked names and leads per country", () => {
   assert.equal(kept.data.proxy, "socks5://127.0.0.1:1080");
   assert.equal(kept.data.lastCountry, "Thailand");
   assert.equal(kept.data.minExperience, "3-5 years");
-  assert.equal(kept.data.httpEngine, "window");
+  assert.equal(kept.data.httpEngine, "camoufox");
+  kept.data.httpEngine = "window";
+  kept.saveNow();
+  assert.equal(createStore(file).data.httpEngine, "window");
   kept.data.httpEngine = "impit";
   kept.saveNow();
   assert.equal(createStore(file).data.httpEngine, "impit");
   kept.data.httpEngine = "other";
   kept.saveNow();
-  assert.equal(createStore(file).data.httpEngine, "window");
+  assert.equal(createStore(file).data.httpEngine, "camoufox");
   fs.unlinkSync(file);
 });
 
