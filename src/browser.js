@@ -4,8 +4,8 @@ const { spawn } = require("child_process");
 const { isChallengeHtml, isHardBlockHtml } = require("./parse");
 const { prepareChromeProxy } = require("./proxy");
 
-// Headed Chrome, minimized until a Cloudflare check. The same window is
-// shown and hidden so the Turnstile page is not reloaded. viewport stays
+// Headed Chrome, kept minimized. A Cloudflare page is reloaded up to three
+// times before that same window is shown for a click. viewport stays
 // null and userAgent is unset: both overrides are a fingerprint.
 
 function parseInstallLine(line) {
@@ -72,6 +72,57 @@ function patchrightCli() {
 function wantsSandbox() {
   if (process.platform !== "linux") return true;
   return typeof process.getuid !== "function" || process.getuid() !== 0;
+}
+
+const CHALLENGE_ATTEMPTS = 3;
+
+// 5–8 s on the first try, then the same span times the attempt number.
+function challengeRetryDelayMs(attempt, random = Math.random) {
+  const n = Math.min(CHALLENGE_ATTEMPTS, Math.max(1, Number(attempt) || 1));
+  const roll = typeof random === "function" ? Number(random()) : Number(random);
+  const unit = 5000 + 3000 * Math.min(1, Math.max(0, roll));
+  return Math.round(unit * n);
+}
+
+function challengeAttemptMessage(attempt, total = CHALLENGE_ATTEMPTS) {
+  return `Cloudflare: попытка ${attempt}/${total}…`;
+}
+
+// Wait, then reload. No clicks. True when the existing challenge check clears.
+async function retryChallengeQuietly({
+  looksChallenged,
+  reload,
+  sleep,
+  shouldStop,
+  onAttempt,
+  attempts = CHALLENGE_ATTEMPTS,
+  delayMs = challengeRetryDelayMs
+}) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (shouldStop && shouldStop()) return false;
+    if (onAttempt) onAttempt(attempt, attempts);
+    await sleep(delayMs(attempt));
+    if (shouldStop && shouldStop()) return false;
+    if (!(await looksChallenged())) return true;
+    await reload();
+    if (shouldStop && shouldStop()) return false;
+    if (!(await looksChallenged())) return true;
+  }
+  return false;
+}
+
+function waitMs(ms, shouldStop) {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tick = () => {
+      if ((shouldStop && shouldStop()) || Date.now() - started >= ms) {
+        resolve();
+        return;
+      }
+      setTimeout(tick, Math.min(200, ms - (Date.now() - started)));
+    };
+    tick();
+  });
 }
 
 function installChromium(browsersPath, onProgress, isCancelled) {
@@ -316,11 +367,32 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
   async function showForChallenge(shouldStop) {
     const target = await ensurePage();
     if (!target) return false;
-    await placeWindow(target, true);
+    await placeWindow(target, false);
     if (!(await pageLooksChallenged(target))) {
       const ok = await gotoEntry(target);
       if (!ok) return false;
     }
+    if (!(await pageLooksChallenged(target))) return true;
+    const clearedQuietly = await retryChallengeQuietly({
+      looksChallenged: () => pageLooksChallenged(target),
+      reload: () => target.reload({ waitUntil: "domcontentloaded", timeout: 90000 }).catch(() => {}),
+      sleep: (ms) => waitMs(ms, shouldStop),
+      shouldStop,
+      onAttempt: (attempt, total) => {
+        report({ phase: "challenge", message: challengeAttemptMessage(attempt, total) });
+      }
+    });
+    if (shouldStop && shouldStop()) return false;
+    if (clearedQuietly) {
+      await placeWindow(target, false);
+      report({ phase: "running", message: "Проверка Cloudflare прошла, продолжаю поиск." });
+      return true;
+    }
+    await placeWindow(target, true);
+    report({
+      phase: "challenge",
+      message: "Cloudflare «Just a moment». Пройдите проверку в окне браузера — поиск продолжится сам."
+    });
     const cleared = await waitUntilClear(shouldStop);
     if (cleared && !(shouldStop && shouldStop())) await placeWindow(target, false);
     return cleared;
@@ -331,4 +403,12 @@ function createBrowser({ userDataDir, entryUrl, onProgress, proxy }) {
 
 patchDriverFork();
 
-module.exports = { createBrowser, parseInstallLine, isMissingChrome };
+module.exports = {
+  createBrowser,
+  parseInstallLine,
+  isMissingChrome,
+  challengeRetryDelayMs,
+  challengeAttemptMessage,
+  retryChallengeQuietly,
+  CHALLENGE_ATTEMPTS
+};

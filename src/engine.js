@@ -98,7 +98,6 @@ function createEngine({ store, profileDir, emit }) {
       if (result.challenge) {
         stats.phase = "challenge";
         stats.blocked = true;
-        stats.message = "Cloudflare «Just a moment». Пройдите проверку в окне браузера — поиск продолжится сам.";
         emitStatus();
         const cleared = await browser.showForChallenge(() => stopRequested);
         stats.blocked = false;
