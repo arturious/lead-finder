@@ -231,7 +231,7 @@ test("csv and xlsx exports", () => {
   const csv = leadsToCsv(leads);
   assert.match(csv, /^\uFEFFUsername,Profile,/);
   assert.match(csv, /save2009,https:\/\/www\.myfxbook\.com\/members\/save2009,Thailand/);
-  assert.match(csv, /,yes,/);
+  assert.doesNotMatch(csv, /Source|Liveness|Online/);
   const xlsx = leadsToXlsx(leads);
   assert.equal(xlsx.readUInt32LE(0), 0x04034b50);
   assert.match(xlsx.toString("utf8"), /save2009/);

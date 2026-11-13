@@ -53,9 +53,6 @@ function renderLeadRow(lead) {
   const cells = [
     linkCell(lead),
     text(lead.country),
-    text(lead.source),
-    text(lead.liveness),
-    text(lead.online ? "да" : "нет"),
     text(lead.joined),
     text(lead.experience),
     text(lead.gain),
@@ -176,8 +173,25 @@ ui.countryInput.addEventListener("keydown", (event) => {
   }
 });
 
+const settingsPanel = $("settings-panel");
+const settingsToggle = $("settings-toggle");
+
+function setSettingsOpen(open) {
+  settingsPanel.hidden = !open;
+  settingsToggle.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+settingsToggle.addEventListener("click", () => {
+  setSettingsOpen(settingsPanel.hidden);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") setSettingsOpen(false);
+});
+
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#country-combo")) ui.countryList.hidden = true;
+  if (!event.target.closest("#settings")) setSettingsOpen(false);
 });
 
 ui.start.addEventListener("click", async () => {

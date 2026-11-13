@@ -76,7 +76,7 @@ button, select, input { font: inherit; color: inherit; }
   -webkit-app-region: drag;
 }
 
-.stage :is(button, input, select, a, .controls, .actions) {
+.stage :is(button, input, select, a, .controls, .actions, .popover) {
   -webkit-app-region: no-drag;
 }
 
@@ -120,7 +120,49 @@ select, #country-input, #proxy-input {
 label:has(#site) { width: 128px; }
 .country-field { width: 156px; }
 label:has(#experience) { width: 164px; }
-.proxy-field { width: 196px; }
+
+.settings { position: relative; }
+
+#settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gear {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.popover {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
+}
+
+.popover[hidden] { display: none; }
+.popover .field { width: 100%; }
+.popover .btn { width: 100%; }
+.proxy-row { display: flex; gap: 8px; }
+.proxy-row input { flex: 1; min-width: 0; }
+.proxy-row .btn { width: auto; }
 
 button { cursor: pointer; }
 
@@ -294,7 +336,7 @@ th, td {
   white-space: nowrap;
 }
 
-th.num, td:nth-child(8), td:nth-child(9), td:nth-child(10) { text-align: right; }
+th.num, td:nth-child(5), td:nth-child(6), td:nth-child(7) { text-align: right; }
 
 th {
   position: sticky;

@@ -30,27 +30,40 @@
           <option value="More than 5 years">Более 5 лет</option>
         </select>
       </label>
-      <label class="field proxy-field">
-        <span>Прокси</span>
-        <input id="proxy-input" type="text" placeholder="socks5://host:port" autocomplete="off" spellcheck="false" />
-      </label>
     </section>
 
     <button type="button" id="start" class="play" disabled>Начать поиск</button>
 
     <div class="actions">
-      <button type="button" id="proxy-check" class="btn">Проверить</button>
-      <button type="button" id="reset-memory" class="btn">Сбросить память</button>
-      <button type="button" id="show-browser" class="btn">Показать браузер</button>
+      <div class="settings" id="settings">
+        <button type="button" id="settings-toggle" class="btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="settings-panel">
+          <svg class="gear" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          Настройки
+        </button>
+        <div id="settings-panel" class="popover" role="dialog" aria-label="Настройки" hidden>
+          <label class="field proxy-field">
+            <span>Прокси</span>
+            <span class="proxy-row">
+              <input id="proxy-input" type="text" placeholder="socks5://host:port" autocomplete="off" spellcheck="false" />
+              <button type="button" id="proxy-check" class="btn">Проверить</button>
+            </span>
+          </label>
+          <p id="proxy-note" class="note"></p>
+          <button type="button" id="reset-memory" class="btn">Сбросить память</button>
+          <button type="button" id="show-browser" class="btn">Показать браузер</button>
+          <button type="button" id="clear-leads" class="btn">Очистить лидов</button>
+        </div>
+      </div>
       <button type="button" id="export-csv" class="btn">CSV</button>
       <button type="button" id="export-xlsx" class="btn">Excel</button>
-      <button type="button" id="clear-leads" class="btn">Очистить лидов</button>
     </div>
   </header>
 
   <section class="meta" id="status" aria-live="polite">
     <p id="status-line">Выберите страну и нажмите «Начать поиск».</p>
-    <p id="proxy-note" class="note"></p>
     <div class="chips">
       <span class="badge">Запросы <strong id="m-requests">0</strong></span>
       <span class="badge">Профили <strong id="m-profiles">0</strong></span>
@@ -66,9 +79,6 @@
           <tr>
             <th>Ник</th>
             <th>Страна</th>
-            <th>Источник</th>
-            <th>Активность</th>
-            <th>Онлайн</th>
             <th>Регистрация</th>
             <th>Стаж</th>
             <th class="num">Прирост</th>
