@@ -45,14 +45,20 @@ function parseTotal(html) {
   return m ? Number(m[1]) : 0;
 }
 
-// /contests/51, /contests/old-name-22, and /contests/moneta-funded/52/rules
+// /contests/51, /contests/old-name-22, and /contests/moneta-funded/52/rules.
+// A shell page can keep the same links inside a JSON script as \/contests\/slug\/52.
 const CONTEST_ID_RE = /\/contests\/(?:[a-z0-9-]+\/)?(?:[a-z0-9-]*-)?(\d+)\b/gi;
+
+function contestSource(html) {
+  return String(html || "").replace(/\\\//g, "/").replace(/\\u002f/gi, "/");
+}
 
 function parseContestIds(html) {
   const ids = new Set();
   const re = new RegExp(CONTEST_ID_RE.source, "gi");
   let m;
-  while ((m = re.exec(String(html || "")))) {
+  const text = contestSource(html);
+  while ((m = re.exec(text))) {
     const id = Number(m[1]);
     if (id >= 1 && id < 500) ids.add(id);
   }
@@ -66,7 +72,7 @@ function contestIsOpen(around) {
 }
 
 function parseLiveContestId(html, ids) {
-  const text = String(html || "");
+  const text = contestSource(html);
   const linkRe = new RegExp(CONTEST_ID_RE.source, "gi");
   let m;
   while ((m = linkRe.exec(text))) {

@@ -309,27 +309,24 @@ async function ensureContests(ctx, state) {
   const liveMissed = state.liveDone && !state.livePages;
   if (!state.refreshContests && state.liveId && !liveMissed) return;
   ctx.setSource("список конкурсов");
-  const res = await ctx.request(`${BASE}/contests`);
+  let res = await ctx.request(`${BASE}/contests`);
   if (ctx.stopped() || !res) return;
   let ids = res.status === 200 ? parseContestIds(res.text) : [];
+  if (!ids.length) {
+    note(ctx, "contests index empty, retry");
+    res = await ctx.request(`${BASE}/contests`);
+    if (ctx.stopped() || !res) return;
+    ids = res.status === 200 ? parseContestIds(res.text) : [];
+  }
+  if (!ids.length) {
+    state.liveDone = true;
+    state.refreshContests = false;
+    note(ctx, `contests live=${state.liveId || ""} hist=${(state.histIds || []).length} total=0`);
+    return;
+  }
   let live = res.status === 200 ? parseLiveContestId(res.text, ids) : null;
-  if (!live) {
-    for (let id = 70; id >= 40 && !ctx.stopped(); id--) {
-      ctx.setSource(`конкурс ${id}?`);
-      const probe = await ctx.request(contestPageUrl(id, 1), { xhr: true });
-      if (ctx.stopped() || !probe) return;
-      if (probe.status === 200 && parseTotal(probe.text) > 0) {
-        live = id;
-        break;
-      }
-    }
-  }
-  if (!live) live = ids.length ? ids[ids.length - 1] : 51;
+  if (!live) live = ids[ids.length - 1];
   const found = ids.length;
-  if (ids.length <= 1) {
-    ids = [];
-    for (let id = Math.max(1, live - 60); id <= live; id++) ids.push(id);
-  }
   const known = new Set([...(state.histIds || []), state.liveId].filter(Boolean));
   const extra = ids.filter((id) => id !== live && !known.has(id));
   if (state.liveId && state.liveId !== live && !(state.histIds || []).includes(state.liveId)) {

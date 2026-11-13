@@ -375,6 +375,28 @@ async def cheap_probe(page):
 
 
 ORIGIN = "https://www.myfxbook.com"
+CONTEST_LINKS_JS = r"""() => {
+  const html = document.documentElement ? document.documentElement.innerHTML : "";
+  return /\/contests\/[^\s"'<>]*\d/.test(html) || html.indexOf("\\/contests\\/") !== -1;
+}"""
+
+
+def contest_index(url):
+    path = urlparse(url or "").path or ""
+    return path.rstrip("/") == "/contests"
+
+
+async def wait_for_contest_links(page):
+    # The index often paints the table after DOMContentLoaded. Snapshot too
+    # early and the HTML has no /contests/<id> links.
+    try:
+        await page.wait_for_function(CONTEST_LINKS_JS, timeout=5000)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        return
+
+
 XHR_JS = """async (url) => {
   try {
     const res = await fetch(url, {
@@ -445,6 +467,8 @@ async def read_document(page, url, started):
             raise
         except Exception:
             break
+    if contest_index(url) and not probe_waiting(probe, mitigated):
+        await wait_for_contest_links(page)
     try:
         html = await page.content()
     except asyncio.CancelledError:

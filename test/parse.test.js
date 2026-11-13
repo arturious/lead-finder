@@ -168,6 +168,13 @@ test("contest index and cloudflare pages", () => {
   const listedIds = parseContestIds(listed);
   assert.deepEqual(listedIds, [1, 22, 49, 50, 52]);
   assert.equal(parseLiveContestId(listed, listedIds), 52);
+  const fixture = fs.readFileSync(path.join(__dirname, "fixtures", "contests-index.html"), "utf8");
+  const fixtureIds = parseContestIds(fixture);
+  assert.deepEqual(fixtureIds, [1, 22, 49, 50, 51]);
+  assert.equal(parseLiveContestId(fixture, fixtureIds), 51);
+  const shell = '<html><script>{"href":"\\/contests\\/moneta-funded\\/51"}</script> Registration Join Now</html>';
+  assert.deepEqual(parseContestIds(shell), [51]);
+  assert.equal(parseLiveContestId(shell, parseContestIds(shell)), 51);
   assert.equal(isChallengeHtml("<title>Just a moment...</title><div class=\"challenge-platform\"></div>", "Just a moment..."), true);
   assert.equal(isHardBlockHtml("<h1>Sorry, you have been blocked</h1>"), true);
   assert.equal(isChallengeHtml("<h1>Sorry, you have been blocked</h1> Just a moment challenge-platform", ""), false);
@@ -431,6 +438,46 @@ test("a round finishes the live contest, then archives, then forum, then systems
   assert.equal(thai.country, "Thailand");
   assert.ok(leads.some((lead) => lead.username === "forumthai" && /пост/.test(lead.liveness)));
   assert.ok(leads.some((lead) => lead.username === "systhai" && /сделка/.test(lead.liveness)));
+});
+
+test("an empty contests index is retried once and does not invent ids", async () => {
+  const calls = [];
+  const logs = [];
+  let stop = false;
+  const ctx = {
+    country: "Thailand",
+    stopped: () => stop,
+    async request(url) {
+      calls.push(url);
+      if (url.endsWith("/contests")) return { status: 200, text: "<html><title>Forex Contests</title><div id=\"contests\"></div></html>" };
+      if (url.includes("recent-topics")) return { status: 200, text: "" };
+      if (url.includes("pt=6")) {
+        stop = true;
+        return { status: 200, text: "" };
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+    async sleep() { stop = true; },
+    isChecked: () => false,
+    hasLead: () => false,
+    markChecked() {},
+    noteProfile() {},
+    addLead() {},
+    setSource() {},
+    setPhase() {},
+    loadCursors: () => null,
+    saveCursors(state) { calls.push(state); },
+    log(line) { logs.push(line); }
+  };
+  await run(ctx);
+  assert.equal(calls.filter((url) => typeof url === "string" && url.endsWith("/contests")).length, 2);
+  assert.equal(calls.some((url) => typeof url === "string" && url.includes("pt=24")), false);
+  assert.equal(calls.some((url) => typeof url === "string" && url.includes("recent-topics")), true);
+  const cursor = calls.find((item) => item && item.histIds);
+  assert.deepEqual(cursor.histIds, []);
+  assert.equal(cursor.liveId, null);
+  assert.equal(cursor.liveDone, true);
+  assert.ok(logs.some((line) => line.includes("total=0")));
 });
 
 test("a profile below the experience minimum is checked and not saved", async () => {
