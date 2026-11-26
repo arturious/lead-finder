@@ -43,7 +43,7 @@ npm run build
 
 Файлы: `dist/Lead-Finder-arm64-mac.dmg` и `dist/Lead-Finder-arm64-mac.zip`.
 
-GitHub Actions (`.github/workflows/release.yml`) собирает их на `macos-14` по тегу `v*` и прикрепляет к GitHub Release. Версия берётся из `package.json`.
+GitHub Actions (`.github/workflows/release.yml`) собирает их по тегу `v*` на `macos-15` (arm64) и прикрепляет к GitHub Release. Образ `macos-14` GitHub снял 2 ноября 2026, поэтому раннер — `macos-15`, тоже Apple Silicon. Версия берётся из `package.json`.
 
 ```bash
 git tag vX.Y.Z && git push --tags
