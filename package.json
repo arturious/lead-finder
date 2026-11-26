@@ -10,7 +10,7 @@
     "test": "node --test test/*.js",
     "setup:camoufox": "node scripts/setup-camoufox.js",
     "postinstall": "node scripts/repair-electron.js",
-    "build": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64"
+    "build": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64 --publish never"
   },
   "allowScripts": {
     "electron@33.4.11": true
