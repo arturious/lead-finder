@@ -272,6 +272,60 @@ window.leadfinder.onLead((payload) => {
 });
 window.leadfinder.onLeads(replaceLeads);
 
+function showUpdate(result) {
+  const note = $("update-note");
+  const banner = $("update-banner");
+  if (!result || !result.ok) {
+    note.textContent = (result && result.error) || "Не удалось проверить";
+    note.className = "bad";
+    banner.hidden = true;
+    return;
+  }
+  if (result.update) {
+    note.textContent = "Есть обновление";
+    note.className = "update";
+    banner.hidden = false;
+    banner.disabled = false;
+    banner.textContent = `Вышла новая версия ${result.latest} — нажмите, чтобы обновить`;
+    return;
+  }
+  note.textContent = "Последняя версия";
+  note.className = "ok";
+  banner.hidden = true;
+}
+
+async function checkUpdates() {
+  const note = $("update-note");
+  note.textContent = "Проверяю…";
+  note.className = "";
+  try {
+    showUpdate(await window.leadfinder.checkUpdate());
+  } catch {
+    showUpdate({ ok: false, error: "Не удалось проверить" });
+  }
+}
+
+$("check-update").addEventListener("click", () => {
+  checkUpdates();
+});
+
+$("update-banner").addEventListener("click", async () => {
+  const banner = $("update-banner");
+  if (banner.disabled) return;
+  banner.disabled = true;
+  banner.textContent = "Скачиваю обновление…";
+  try {
+    const result = await window.leadfinder.installUpdate();
+    if (!result || !result.ok) {
+      banner.disabled = false;
+      banner.textContent = (result && result.error) || "Не удалось обновить";
+    }
+  } catch {
+    banner.disabled = false;
+    banner.textContent = "Не удалось обновить";
+  }
+});
+
 window.leadfinder.bootstrap().then((data) => {
   for (const source of data.sources) {
     const option = document.createElement("option");
@@ -288,7 +342,9 @@ window.leadfinder.bootstrap().then((data) => {
   replaceLeads(data.leads || []);
   if (data.minExperience) ui.experience.value = data.minExperience;
   if (data.proxy) ui.proxyInput.value = data.proxy;
+  $("app-version").textContent = data.version ? `Версия ${data.version}` : "";
   setStatus(data.status || {});
+  checkUpdates();
 }).catch((error) => {
   ui.statusLine.textContent = error && error.message ? error.message : "Окно не связалось с приложением";
   ui.statusLine.className = "error";

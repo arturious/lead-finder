@@ -65,12 +65,66 @@ function venvPython(root) {
   return fs.existsSync(bin) ? bin : "";
 }
 
-function locateCamoufox(root) {
+function bundledSidecar(resourcesPath) {
+  if (!resourcesPath) return "";
+  const bin = path.join(resourcesPath, "camoufox-sidecar");
+  return fs.existsSync(bin) ? bin : "";
+}
+
+function locateCamoufox(root, resourcesPath) {
+  const bundled = bundledSidecar(resourcesPath);
+  if (bundled) return { command: bundled, args: [] };
   const python = venvPython(root);
   const script = path.join(root, "sidecar", "camoufox_server.py");
   if (!python) return { error: "no .venv-camoufox python (run npm run setup:camoufox)" };
   if (!fs.existsSync(script)) return { error: "sidecar/camoufox_server.py is missing" };
   return { python, script };
+}
+
+function fetchCamoufoxBrowser(command, args) {
+  let child = null;
+  let settled = false;
+  let timer = null;
+  const promise = new Promise((resolve, reject) => {
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child = null;
+      if (error) reject(error);
+      else resolve();
+    };
+    child = spawn(command, [...(args || []), "--fetch-browser"], {
+      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+      stdio: ["ignore", "ignore", "pipe"]
+    });
+    let err = "";
+    child.stderr.on("data", (chunk) => {
+      err = `${err}${chunk.toString("utf8")}`.slice(-4000);
+    });
+    timer = setTimeout(() => {
+      killTree(child, "SIGKILL");
+      finish(Object.assign(new Error("camoufox fetch timed out"), { code: "CAMOUFOX_START" }));
+    }, 10 * 60 * 1000);
+    child.on("error", (error) => {
+      error.code = error.code || "CAMOUFOX_START";
+      finish(error);
+    });
+    child.on("exit", (code) => {
+      if (code === 0) finish();
+      else {
+        const error = new Error((err || "").trim() || `camoufox fetch exited (${code})`);
+        error.code = "CAMOUFOX_START";
+        finish(error);
+      }
+    });
+  });
+  return {
+    promise,
+    cancel() {
+      if (child) killTree(child, "SIGTERM");
+    }
+  };
 }
 
 function killTree(child, signal) {
@@ -308,5 +362,6 @@ module.exports = {
   parseSidecarLine,
   toFetchResult,
   locateCamoufox,
+  fetchCamoufoxBrowser,
   createCamoufoxClient
 };

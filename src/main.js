@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { checkForUpdate, downloadFile, updateScript } = require("./update");
 const { COUNTRIES } = require("./countries");
 const { listSources } = require("./sources");
 const { createStore } = require("./store");
@@ -63,8 +65,33 @@ app.whenReady().then(() => {
     minExperience: store.data.minExperience || "",
     leads: store.leadsFor(store.data.lastCountry || ""),
     status: engine.snapshot(),
-    proxy: store.data.proxy || ""
+    proxy: store.data.proxy || "",
+    version: app.getVersion()
   }));
+
+  ipcMain.handle("check-update", () => checkForUpdate(app.getVersion()));
+
+  ipcMain.handle("install-update", async () => {
+    if (process.platform !== "darwin" || !app.isPackaged) {
+      return { ok: false, error: "Обновление ставится из собранного приложения на macOS" };
+    }
+    const info = await checkForUpdate(app.getVersion());
+    if (!info.ok || !info.update || !info.url) {
+      return { ok: false, error: info.error || "Обновления нет" };
+    }
+    const dmg = path.join(app.getPath("temp"), "Lead-Finder-update.dmg");
+    try {
+      await downloadFile(info.url, dmg);
+    } catch {
+      return { ok: false, error: "Не удалось скачать DMG" };
+    }
+    const bundle = path.resolve(process.execPath, "..", "..", "..");
+    const script = path.join(app.getPath("temp"), "lead-finder-update.sh");
+    fs.writeFileSync(script, updateScript({ pid: process.pid, dmg, bundle }), { mode: 0o755 });
+    spawn("bash", [script], { detached: true, stdio: "ignore" }).unref();
+    setImmediate(() => app.quit());
+    return { ok: true };
+  });
 
   ipcMain.handle("leads-for", (_event, country) => {
     if (country) store.setLast(store.data.lastSite || "myfxbook", country);

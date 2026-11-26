@@ -785,6 +785,26 @@ async def serve(options):
         await close_context(cm, pool)
 
 
+def browser_installed():
+    try:
+        from camoufox.pkgman import installed_verstr
+        return bool(installed_verstr())
+    except Exception:
+        return False
+
+
+def fetch_browser():
+    # The packaged app has the Python sidecar, not the Firefox build. The
+    # browser still lands in the user cache (Library/Caches/camoufox on macOS).
+    if browser_installed():
+        return
+    import click
+    from camoufox.__main__ import fetch
+    print("camoufox fetch: downloading browser", file=sys.stderr, flush=True)
+    click.confirm = lambda *args, **kwargs: True
+    fetch.callback(None)
+
+
 async def main():
     version = sys.version_info
     if version < (3, 10) or version >= (3, 14):
@@ -825,4 +845,11 @@ if __name__ == "__main__":
         sys.stdout.reconfigure(line_buffering=True)
     except Exception:
         pass
+    if "--fetch-browser" in sys.argv:
+        try:
+            fetch_browser()
+        except SystemExit as error:
+            code = error.code if isinstance(error.code, int) else 1
+            raise SystemExit(code)
+        raise SystemExit(0)
     asyncio.run(main())

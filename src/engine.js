@@ -4,7 +4,7 @@ const { createHttpClient, freshHttpState, httpFallbackState } = require("./http"
 const { getSource } = require("./sources");
 const { createPace, paceDelayMs, paceOnSuccess, paceOnLimit, paceOnSoft, paceKind, backoffMinutes } = require("./pacing");
 const { assertProxyReachable } = require("./proxy");
-const { createCamoufoxClient, locateCamoufox, normalizeHttpEngine, engineMode, fallbackEngine, camoufoxSlots } = require("./camoufox");
+const { createCamoufoxClient, locateCamoufox, fetchCamoufoxBrowser, normalizeHttpEngine, engineMode, fallbackEngine, camoufoxSlots } = require("./camoufox");
 
 function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand }) {
   let stopRequested = false;
@@ -18,6 +18,7 @@ function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand
   let httpClient = null;
   let camoufox = null;
   let camoufoxReady = false;
+  let browserFetch = null;
   let settleUntil = 0;
   let stopMark = 0;
   let pendingLabel = "";
@@ -112,6 +113,7 @@ function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand
       emitStatus();
     }
     for (const wake of [...wakes]) wake();
+    if (browserFetch) browserFetch.cancel();
     if (camoufox) camoufox.cancel();
     if (browser && typeof browser.abortLoad === "function") {
       try { browser.abortLoad(); } catch { /* the window is already gone */ }
@@ -164,8 +166,9 @@ function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand
     if (camoufoxCommand && camoufoxCommand.command) {
       return { command: camoufoxCommand.command, args: camoufoxCommand.args || [] };
     }
-    const found = locateCamoufox(path.join(__dirname, ".."));
+    const found = locateCamoufox(path.join(__dirname, ".."), process.resourcesPath);
     if (found.error) return { error: found.error };
+    if (found.command) return { command: found.command, args: found.args || [] };
     return { command: found.python, args: [found.script] };
   }
 
@@ -180,7 +183,7 @@ function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand
       proxy: currentProxy(),
       log(line) {
         const text = String(line || "").trim();
-        if (text && /error|traceback|modulenotfound|not supported|recycle/i.test(text)) {
+        if (text && /error|traceback|modulenotfound|not supported|recycle|camoufox fetch/i.test(text)) {
           logLine(`camoufox: ${text.split("\n")[0]}`);
         }
       }
@@ -196,6 +199,13 @@ function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand
     const client = camoufoxClient();
     if (!client) return found.error || "camoufox unavailable";
     try {
+      if (!camoufoxCommand) {
+        browserFetch = fetchCamoufoxBrowser(found.command, found.args || []);
+        const fetched = await abandonable("camoufox.fetch", browserFetch.promise);
+        browserFetch = null;
+        if (fetched.stopped || stopRequested) return "";
+        if (fetched.error) return fetched.error.message || "camoufox fetch failed";
+      }
       await client.useProxy(currentProxy());
       const starting = client.start();
       starting.catch(() => {});

@@ -10,7 +10,7 @@
     "test": "node --test test/*.js",
     "setup:camoufox": "node scripts/setup-camoufox.js",
     "postinstall": "node scripts/repair-electron.js",
-    "build": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --arm64"
+    "build": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --arm64"
   },
   "allowScripts": {
     "electron@33.4.11": true
@@ -34,9 +34,29 @@
     "directories": {
       "output": "dist"
     },
+    "files": [
+      "**/*",
+      "!build/**",
+      "!dist/**",
+      "!.venv-camoufox/**",
+      "!.venv-sidecar-build/**",
+      "!test/**"
+    ],
+    "extraResources": [
+      {
+        "from": "build/sidecar/camoufox-sidecar",
+        "to": "camoufox-sidecar"
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
         {
           "target": "zip",
           "arch": [

@@ -24,7 +24,7 @@ npm start
 npm run setup:camoufox
 ```
 
-Скрипт создаёт `.venv-camoufox` через `uv` (или `python3.12`/`python3.13`), ставит `camoufox[geoip]` и скачивает браузер (`camoufox fetch`). В собранное `.app` Python пока не кладётся.
+Скрипт создаёт `.venv-camoufox` через `uv` (или `python3.12`/`python3.13`), ставит `camoufox[geoip]` и скачивает браузер (`camoufox fetch`). В собранное `.app` кладётся один бинарник сайдкара (PyInstaller: Python 3.12 и `camoufox[geoip]`), без отдельного Python на машине. Сам браузер Camoufox в образ не входит: при первом поиске он скачивается в пользовательский кэш (`~/Library/Caches/camoufox`), тем же `camoufox fetch`. Так DMG остаётся меньше, а динамические импорты Camoufox не отваливаются, потому что PyInstaller собирает пакет целиком (`--collect-all`).
 
 Первый запуск: откройте приложение, выберите страну, нажмите «Начать поиск». Ключ и регистрация не нужны. Отдельный Chrome не нужен.
 
@@ -34,13 +34,20 @@ npm run setup:camoufox
 
 ## Сборка
 
-Неподписанный zip с `Lead Finder.app` для arm64:
+Неподписанные DMG и zip с `Lead Finder.app` для arm64. На Mac сначала соберите сайдкар, затем образ. Подпись не ставится (`identity: null`), аккаунт разработчика не нужен.
 
 ```bash
+bash scripts/build-sidecar.sh
 npm run build
 ```
 
-Архив появляется в `dist/Lead-Finder-arm64-mac.zip`. Подпись не ставится (`identity: null`).
+Файлы: `dist/Lead-Finder-arm64-mac.dmg` и `dist/Lead-Finder-arm64-mac.zip`.
+
+GitHub Actions (`.github/workflows/release.yml`) собирает их на `macos-14` по тегу `v*` и прикрепляет к GitHub Release. Версия берётся из `package.json`.
+
+```bash
+git tag vX.Y.Z && git push --tags
+```
 
 Установка последней сборки из GitHub Releases в `/Applications` и снятие карантина:
 
@@ -48,4 +55,12 @@ npm run build
 curl -fsSL https://raw.githubusercontent.com/arturious/lead-finder/main/install.sh | bash
 ```
 
-Первый запуск непроверенного приложения macOS может попросить открыть его через правый клик → «Открыть».
+Приложение не подписано, поэтому Gatekeeper блокирует первый запуск. Снимите карантин:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Lead Finder.app"
+```
+
+или щёлкните по приложению правой кнопкой и выберите «Открыть».
+
+Проверка обновлений идёт при старте и из «Проверить обновления» в настройках: публичный GitHub API, без токена. Если релиз новее `app.getVersion()`, сверху появляется «Вышла новая версия X — нажмите, чтобы обновить». Нажатие скачивает DMG, монтирует его, заменяет текущий `.app` (или `/Applications/Lead Finder.app`, если приложение запущено с диска), снимает карантин и открывает новую копию. Если смонтировать образ не вышло, открывается сам DMG. Рядом с кнопкой настроек видны текущая версия и «Последняя версия» или «Есть обновление».

@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <button type="button" id="update-banner" class="update-banner" hidden></button>
   <header class="top">
     <section class="controls">
       <label class="field">
@@ -37,6 +38,10 @@
     <div class="exports">
       <button type="button" id="export-xlsx" class="ghost">Excel</button>
       <div class="settings" id="settings">
+        <p class="version-status" id="version-status">
+          <span id="app-version"></span>
+          <span id="update-note"></span>
+        </p>
         <button type="button" id="settings-toggle" class="ghost icon" title="Настройки" aria-label="Настройки" aria-haspopup="dialog" aria-expanded="false" aria-controls="settings-panel">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path fill="currentColor" fill-rule="evenodd" d="M10.3 2.3a1.7 1.7 0 0 1 3.4 0l.3 1.8a7.2 7.2 0 0 1 1.6.7l1.6-1a1.7 1.7 0 0 1 2.3.6l1.7 2.9a1.7 1.7 0 0 1-.6 2.3l-1.6 1a7.4 7.4 0 0 1 0 1.8l1.6 1a1.7 1.7 0 0 1 .6 2.3l-1.7 2.9a1.7 1.7 0 0 1-2.3.6l-1.6-1a7.2 7.2 0 0 1-1.6.7l-.3 1.8a1.7 1.7 0 0 1-3.4 0l-.3-1.8a7.2 7.2 0 0 1-1.6-.7l-1.6 1a1.7 1.7 0 0 1-2.3-.6l-1.7-2.9a1.7 1.7 0 0 1 .6-2.3l1.6-1a7.4 7.4 0 0 1 0-1.8l-1.6-1a1.7 1.7 0 0 1-.6-2.3l1.7-2.9a1.7 1.7 0 0 1 2.3-.6l1.6 1a7.2 7.2 0 0 1 1.6-.7l.3-1.8zM12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/>
@@ -51,6 +56,7 @@
             </span>
           </label>
           <p id="proxy-note" class="note"></p>
+          <button type="button" id="check-update" class="ghost">Проверить обновления</button>
           <button type="button" id="reset-memory" class="ghost">Сбросить память</button>
           <button type="button" id="clear-leads" class="ghost">Очистить лидов</button>
         </div>
