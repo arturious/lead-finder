@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="stage">
+  <header class="top">
     <section class="controls">
       <label class="field">
         <span>Сайт</span>
@@ -32,66 +32,60 @@
       </label>
     </section>
 
-    <button type="button" id="start" class="play" disabled>Начать поиск</button>
-
-    <div class="actions">
+    <div class="center">
+      <button type="button" id="start" class="start" disabled>Начать поиск</button>
       <div class="settings" id="settings">
-        <button type="button" id="settings-toggle" class="btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="settings-panel">
-          <svg class="gear" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-          Настройки
-        </button>
+        <button type="button" id="settings-toggle" class="ghost" aria-haspopup="dialog" aria-expanded="false" aria-controls="settings-panel">Настройки</button>
         <div id="settings-panel" class="popover" role="dialog" aria-label="Настройки" hidden>
           <label class="field proxy-field">
             <span>Прокси</span>
             <span class="proxy-row">
               <input id="proxy-input" type="text" placeholder="socks5://host:port" autocomplete="off" spellcheck="false" />
-              <button type="button" id="proxy-check" class="btn">Проверить</button>
+              <button type="button" id="proxy-check" class="ghost">Проверить</button>
             </span>
           </label>
           <p id="proxy-note" class="note"></p>
-          <button type="button" id="reset-memory" class="btn">Сбросить память</button>
-          <button type="button" id="show-browser" class="btn">Показать браузер</button>
-          <button type="button" id="clear-leads" class="btn">Очистить лидов</button>
+          <button type="button" id="reset-memory" class="ghost">Сбросить память</button>
+          <button type="button" id="show-browser" class="ghost">Показать браузер</button>
+          <button type="button" id="clear-leads" class="ghost">Очистить лидов</button>
         </div>
       </div>
-      <button type="button" id="export-csv" class="btn">CSV</button>
-      <button type="button" id="export-xlsx" class="btn">Excel</button>
+    </div>
+
+    <div class="exports">
+      <button type="button" id="export-csv" class="ghost">CSV</button>
+      <button type="button" id="export-xlsx" class="ghost">Excel</button>
     </div>
   </header>
 
-  <section class="meta" id="status" aria-live="polite">
-    <p id="status-line">Выберите страну и нажмите «Начать поиск».</p>
-    <div class="chips">
-      <span class="badge">Запросы <strong id="m-requests">0</strong></span>
-      <span class="badge">Профили <strong id="m-profiles">0</strong></span>
-      <span class="badge">Лиды <strong id="m-leads">0</strong></span>
-      <span class="badge">Источник <strong id="m-source">—</strong></span>
+  <section class="status" id="status" aria-live="polite">
+    <div class="metrics">
+      <span>Запросы <strong id="m-requests">0</strong></span>
+      <span>Профили <strong id="m-profiles">0</strong></span>
+      <span>Лиды <strong id="m-leads">0</strong></span>
+      <span>Источник <strong id="m-source">—</strong></span>
     </div>
+    <p id="status-line">Выберите страну и нажмите «Начать поиск».</p>
   </section>
 
-  <main class="card">
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Ник</th>
-            <th>Страна</th>
-            <th>Регистрация</th>
-            <th>Стаж</th>
-            <th class="num">Прирост</th>
-            <th class="num">Просадка</th>
-            <th class="num">Сделки</th>
-            <th>Найден</th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
-      <p id="empty" class="empty">Пока пусто. Подходящие профили появятся здесь по ходу поиска.</p>
-    </div>
-  </main>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Ник</th>
+          <th>Страна</th>
+          <th>Регистрация</th>
+          <th>Стаж</th>
+          <th>Прирост</th>
+          <th>Просадка</th>
+          <th>Сделки</th>
+          <th>Найден</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p id="empty" class="empty">Пока пусто. Подходящие профили появятся здесь по ходу поиска.</p>
+  </div>
 
   <script src="renderer.js"></script>
 </body>
