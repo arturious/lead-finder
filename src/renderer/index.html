@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>Lead Finder</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <button type="button" id="update-banner" class="update-banner" hidden></button>
+  <header class="top">
+    <section class="controls">
+      <label class="field">
+        <span>Сайт</span>
+        <select id="site"></select>
+      </label>
+      <div class="field country-field">
+        <span>Страна</span>
+        <div class="combo" id="country-combo">
+          <input id="country-input" type="text" placeholder="Найти страну" autocomplete="off" spellcheck="false" />
+          <ul id="country-list" class="country-list" hidden></ul>
+        </div>
+      </div>
+      <label class="field">
+        <span>Стаж</span>
+        <select id="experience">
+          <option value="">Любой</option>
+          <option value="Less than a year">Менее года и больше</option>
+          <option value="1-3 years">1–3 года и больше</option>
+          <option value="3-5 years">3–5 лет и больше</option>
+          <option value="More than 5 years">Более 5 лет</option>
+        </select>
+      </label>
+    </section>
+
+    <button type="button" id="start" class="start" disabled>Начать поиск</button>
+
+    <div class="exports">
+      <button type="button" id="export-xlsx" class="ghost">Excel</button>
+      <div class="settings" id="settings">
+        <p class="version-status" id="version-status">
+          <span id="app-version"></span>
+          <span id="update-note"></span>
+        </p>
+        <button type="button" id="settings-toggle" class="ghost icon" title="Настройки" aria-label="Настройки" aria-haspopup="dialog" aria-expanded="false" aria-controls="settings-panel">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" fill-rule="evenodd" d="M10.3 2.3a1.7 1.7 0 0 1 3.4 0l.3 1.8a7.2 7.2 0 0 1 1.6.7l1.6-1a1.7 1.7 0 0 1 2.3.6l1.7 2.9a1.7 1.7 0 0 1-.6 2.3l-1.6 1a7.4 7.4 0 0 1 0 1.8l1.6 1a1.7 1.7 0 0 1 .6 2.3l-1.7 2.9a1.7 1.7 0 0 1-2.3.6l-1.6-1a7.2 7.2 0 0 1-1.6.7l-.3 1.8a1.7 1.7 0 0 1-3.4 0l-.3-1.8a7.2 7.2 0 0 1-1.6-.7l-1.6 1a1.7 1.7 0 0 1-2.3-.6l-1.7-2.9a1.7 1.7 0 0 1 .6-2.3l1.6-1a7.4 7.4 0 0 1 0-1.8l-1.6-1a1.7 1.7 0 0 1-.6-2.3l1.7-2.9a1.7 1.7 0 0 1 2.3-.6l1.6 1a7.2 7.2 0 0 1 1.6-.7l.3-1.8zM12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/>
+          </svg>
+        </button>
+        <div id="settings-panel" class="popover" role="dialog" aria-label="Настройки" hidden>
+          <label class="field proxy-field">
+            <span>Прокси</span>
+            <span class="proxy-row">
+              <input id="proxy-input" type="text" placeholder="socks5://host:port" autocomplete="off" spellcheck="false" />
+              <button type="button" id="proxy-check" class="ghost">Проверить</button>
+            </span>
+          </label>
+          <p id="proxy-note" class="note"></p>
+          <button type="button" id="check-update" class="ghost">Проверить обновления</button>
+          <button type="button" id="reset-memory" class="ghost">Сбросить память</button>
+          <button type="button" id="clear-leads" class="ghost">Очистить лидов</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="status" id="status" aria-live="polite">
+    <div class="metrics">
+      <span>Запросы <strong id="m-requests">0</strong></span>
+      <span>Профили <strong id="m-profiles">0</strong></span>
+      <span>Лиды <strong id="m-leads">0</strong></span>
+      <span>Источник <strong id="m-source">—</strong></span>
+    </div>
+    <p id="status-line">Выберите страну и нажмите «Начать поиск».</p>
+  </section>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Ник</th>
+          <th>Страна</th>
+          <th>Регистрация</th>
+          <th>Стаж</th>
+          <th>Прирост</th>
+          <th>Просадка</th>
+          <th>Сделки</th>
+          <th>Найден</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p id="empty" class="empty">Пока пусто. Подходящие профили появятся здесь по ходу поиска.</p>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
