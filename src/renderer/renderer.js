@@ -41,7 +41,6 @@ function setStatus(status) {
 
 function syncActionButtons() {
   const empty = state.leads.size === 0;
-  $("export-csv").disabled = empty;
   $("export-xlsx").disabled = empty;
   $("clear-leads").disabled = state.running || empty;
   $("reset-memory").disabled = state.running;
@@ -244,11 +243,6 @@ ui.experience.addEventListener("change", () => {
   window.leadfinder.saveExperience(ui.experience.value);
 });
 
-$("show-browser").addEventListener("click", () => {
-  window.leadfinder.showBrowser();
-});
-
-$("export-csv").addEventListener("click", () => exportFile("csv"));
 $("export-xlsx").addEventListener("click", () => exportFile("xlsx"));
 
 $("reset-memory").addEventListener("click", async () => {

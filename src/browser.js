@@ -464,12 +464,6 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
     return showForChallenge(shouldStop);
   }
 
-  function showWindow() {
-    if (!win || win.isDestroyed()) return false;
-    win.show();
-    return true;
-  }
-
   return {
     open,
     close,
@@ -477,7 +471,6 @@ function createBrowser({ entryUrl, onProgress, proxy }) {
     fetch,
     showForChallenge,
     clearUrl,
-    showWindow,
     isOpen,
     cookieHeader,
     writeCookie,

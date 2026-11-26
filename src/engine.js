@@ -622,17 +622,7 @@ function createEngine({ store, profileDir, emit, browserFactory, camoufoxCommand
     return snapshot();
   }
 
-  async function showBrowser() {
-    try {
-      await ensureBrowser();
-    } catch {
-      return false;
-    }
-    if (!browser || typeof browser.showWindow !== "function") return false;
-    return browser.showWindow();
-  }
-
-  return { start, stop, snapshot, showBrowser, warm, useProxy, shutdown };
+  return { start, stop, snapshot, warm, useProxy, shutdown };
 }
 
 module.exports = { createEngine, backoffMinutes };

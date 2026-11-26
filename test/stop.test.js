@@ -30,7 +30,6 @@ test("stop settles a camoufox run within a second while the sidecar and window a
         fetch: () => new Promise(() => {}),
         clearUrl: () => new Promise(() => {}),
         showForChallenge: () => new Promise(() => {}),
-        showWindow: () => false,
         cookieHeader: async () => "",
         writeCookie: async () => {},
         userAgent: () => "Mozilla/5.0",
